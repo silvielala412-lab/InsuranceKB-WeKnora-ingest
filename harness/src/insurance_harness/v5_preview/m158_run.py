@@ -13,11 +13,11 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path, PurePosixPath
 from time import perf_counter
-from typing import Any
+from typing import Any, Protocol
 from xml.etree import ElementTree
 
 from .catalog import catalog_sha256, load_v5_catalog
-from .contracts import PluginFieldResult, V5CandidatePreview
+from .contracts import CandidateValue, PluginFieldResult, TriState, V5CandidatePreview
 from .llm_plugin import OpenAICompatibleCompletion
 from .m152_gapfill import _replace_preview_fields
 from .m154_concurrency import (
@@ -31,7 +31,11 @@ from .m154_concurrency import (
     execute_products_ordered,
     invoke_provider_attempt,
 )
-from .m156_quality import M156_FOCUS_FIELD_IDS
+from .m156_quality import (
+    M156_FOCUS_FIELD_IDS,
+    M156FieldDecision,
+    M156ReplacementDecision,
+)
 from .m156_run import (
     M156_PRODUCT_IDS,
     M156CallRecord,
@@ -108,6 +112,80 @@ class M158Batch:
     shard: LongFieldShard | None = None
 
 
+class MaterialLoader(Protocol):
+    def __call__(
+        self,
+        *,
+        product: ProviderTrialProduct,
+        sample_root: Path,
+        serious_illness_root: Path,
+        supplemental_root_596: Path,
+    ) -> M156Material: ...
+
+
+class RepairHintBuilder(Protocol):
+    def __call__(self, batch: M158Batch) -> str: ...
+
+
+class EvidenceAdmitter(Protocol):
+    def __call__(
+        self,
+        result: PluginFieldResult,
+        *,
+        candidate_text: str,
+        product_display_name: str,
+    ) -> tuple[PluginFieldResult | None, M156FieldDecision]: ...
+
+
+class ReplacementSelector(Protocol):
+    def __call__(
+        self,
+        *,
+        field_id: str,
+        baseline_state: TriState,
+        baseline_value: CandidateValue | None,
+        baseline_evidence_quotes: Sequence[str],
+        proposed_state: TriState,
+        proposed_value: CandidateValue | None,
+        proposed_evidence_quotes: Sequence[str],
+        candidate_text: str,
+        product_display_name: str,
+    ) -> M156ReplacementDecision: ...
+
+
+@dataclass(frozen=True, slots=True)
+class M158RunPolicy:
+    """Immutable run-specific dependencies and frozen artifact identities."""
+
+    baseline_run_sha256: str
+    baseline_file_sha256: str
+    catalog_sha256: str
+    business_feedback_sha256: str
+    artifact_label: str
+    focus_field_ids: tuple[str, ...]
+    max_compact_fields: int
+    material_loader: MaterialLoader
+    repair_hint_builder: RepairHintBuilder
+    evidence_admitter: EvidenceAdmitter
+    replacement_selector: ReplacementSelector
+
+    @classmethod
+    def default(cls) -> M158RunPolicy:
+        return cls(
+            baseline_run_sha256=M158_BASELINE_RUN_SHA256,
+            baseline_file_sha256=M158_BASELINE_FILE_SHA256,
+            catalog_sha256=M158_CATALOG_SHA256,
+            business_feedback_sha256=M158_BUSINESS_FEEDBACK_SHA256,
+            artifact_label=M158_ARTIFACT_LABEL,
+            focus_field_ids=M158_FOCUS_FIELD_IDS,
+            max_compact_fields=M158_MAX_COMPACT_FIELDS,
+            material_loader=_load_m156_material,
+            repair_hint_builder=_repair_hint,
+            evidence_admitter=admit_verified_evidence_subset,
+            replacement_selector=choose_m158_replacement,
+        )
+
+
 def _long_shard_limit(field_id: str) -> int:
     return 24_000 if field_id == "disease_definitions_and_criteria" else 42_000
 
@@ -115,11 +193,13 @@ def _long_shard_limit(field_id: str) -> int:
 def _plan_product_batches(
     product: ProviderTrialProduct,
     material: M156Material,
+    *,
+    policy: M158RunPolicy,
 ) -> tuple[M158Batch, ...]:
     catalog = load_v5_catalog()
     schema = catalog.schema_for(product.insurance_class)
     applicable = tuple(
-        field.field_id for field in schema.fields if field.field_id in M158_FOCUS_FIELD_IDS
+        field.field_id for field in schema.fields if field.field_id in policy.focus_field_ids
     )
     plans: list[M158Batch] = []
     index = 0
@@ -158,8 +238,8 @@ def _plan_product_batches(
     compact_ids = tuple(
         field_id for field_id in applicable if field_id not in M158_LONG_FIELD_IDS
     )
-    for start in range(0, len(compact_ids), M158_MAX_COMPACT_FIELDS):
-        compact_batch_ids = compact_ids[start : start + M158_MAX_COMPACT_FIELDS]
+    for start in range(0, len(compact_ids), policy.max_compact_fields):
+        compact_batch_ids = compact_ids[start : start + policy.max_compact_fields]
         if not compact_batch_ids:
             continue
         context = build_m157_field_context(
@@ -234,9 +314,10 @@ def _field_record(
     batch_index: int,
     provider_call: int,
     phase: str,
+    replacement_selector: ReplacementSelector,
 ) -> tuple[V5CandidatePreview, M156FieldRecord]:
     original = next(field for field in preview.fields if field.field_id == result.field_id)
-    replacement = choose_m158_replacement(
+    replacement = replacement_selector(
         field_id=result.field_id,
         baseline_state=original.state,
         baseline_value=original.value,
@@ -381,13 +462,15 @@ def run_m158(
     completion_factory: Callable[[], OpenAICompatibleCompletion],
     concurrency_profile: ProductConcurrencyProfile,
     product_ids: Sequence[str] = M156_PRODUCT_IDS,
+    policy: M158RunPolicy | None = None,
 ) -> tuple[V5ProviderTrialRun, Mapping[str, Any], Mapping[str, Any]]:
+    effective_policy = policy or M158RunPolicy.default()
     outputs = (output_path, audit_output_path, assessment_output_path)
     if any(path.resolve() == baseline_path.resolve() for path in outputs):
         raise ProviderTrialError("M158_BASELINE_OVERWRITE_FORBIDDEN")
     if any(path.exists() for path in outputs):
         raise ProviderTrialError("M158_OUTPUT_ALREADY_EXISTS")
-    if _sha256_bytes(baseline_path.read_bytes()) != M158_BASELINE_FILE_SHA256:
+    if _sha256_bytes(baseline_path.read_bytes()) != effective_policy.baseline_file_sha256:
         raise ProviderTrialError("M158_BASELINE_FILE_SHA256_DRIFT")
     selected_product_ids = tuple(dict.fromkeys(product_ids))
     if not selected_product_ids or any(
@@ -399,14 +482,15 @@ def run_m158(
             raise ProviderTrialError("M158_BUSINESS_FEEDBACK_REQUIRED")
     elif (
         not business_feedback_path.is_file()
-        or _sha256_bytes(business_feedback_path.read_bytes()) != M158_BUSINESS_FEEDBACK_SHA256
+        or _sha256_bytes(business_feedback_path.read_bytes())
+        != effective_policy.business_feedback_sha256
     ):
         raise ProviderTrialError("M158_BUSINESS_FEEDBACK_SHA256_DRIFT")
     baseline = load_provider_trial_run(baseline_path)
-    if baseline.run_sha256 != M158_BASELINE_RUN_SHA256:
+    if baseline.run_sha256 != effective_policy.baseline_run_sha256:
         raise ProviderTrialError("M158_BASELINE_RUN_SHA256_DRIFT")
     catalog = load_v5_catalog()
-    if catalog_sha256(catalog) != M158_CATALOG_SHA256:
+    if catalog_sha256(catalog) != effective_policy.catalog_sha256:
         raise ProviderTrialError("M158_CATALOG_SHA256_DRIFT")
     by_id = {product.product_id: product for product in baseline.products}
     if any(product_id not in by_id for product_id in selected_product_ids):
@@ -421,14 +505,16 @@ def run_m158(
         if business_feedback_path is not None
         else ()
     )
-    feedback_sha256 = M158_BUSINESS_FEEDBACK_SHA256 if business_feedback_path else None
+    feedback_sha256 = (
+        effective_policy.business_feedback_sha256 if business_feedback_path else None
+    )
 
     timer = RunTimingRecorder()
     with timer.stage("materials_parse"):
         with ProcessPoolExecutor(max_workers=4) as pool:
             futures = {
                 product.product_version_id: pool.submit(
-                    _load_m156_material,
+                    effective_policy.material_loader,
                     product=product,
                     sample_root=sample_root,
                     serious_illness_root=serious_illness_root,
@@ -440,7 +526,9 @@ def run_m158(
     with timer.stage("planning"):
         plans = {
             product.product_version_id: _plan_product_batches(
-                product, materials[product.product_version_id]
+                product,
+                materials[product.product_version_id],
+                policy=effective_policy,
             )
             for product in products
         }
@@ -509,7 +597,7 @@ def run_m158(
                     context=batch.context,
                     completion=completion,
                     evidence_classifier=classify_m157_evidence,
-                    repair_hint=_repair_hint(batch),
+                    repair_hint=effective_policy.repair_hint_builder(batch),
                 ),
             )
             timings.append(outcome.timing)
@@ -564,7 +652,7 @@ def run_m158(
                     long_coverages.setdefault(field_id, []).append(batch.coverage[field_id])
                     long_calls.setdefault(field_id, []).append(calls[-1].provider_call)
                     if results is not None:
-                        admitted, _decision = admit_verified_evidence_subset(
+                        admitted, _decision = effective_policy.evidence_admitter(
                             results[0],
                             candidate_text=batch.context,
                             product_display_name=product.product_display_name,
@@ -577,7 +665,7 @@ def run_m158(
                         _unknown_result(preview, field_id) for field_id in batch.field_ids
                     )
                 for result in results:
-                    admitted, _decision = admit_verified_evidence_subset(
+                    admitted, _decision = effective_policy.evidence_admitter(
                         result,
                         candidate_text=batch.context,
                         product_display_name=product.product_display_name,
@@ -591,6 +679,7 @@ def run_m158(
                         batch_index=batch.batch_index,
                         provider_call=calls[-1].provider_call,
                         phase="compact_coupled",
+                        replacement_selector=effective_policy.replacement_selector,
                     )
                     records.append(record)
 
@@ -599,7 +688,7 @@ def run_m158(
                 field.field_id
                 for field in schema.fields
                 if field.field_id in M158_LONG_FIELD_IDS
-                and field.field_id in M158_FOCUS_FIELD_IDS
+                and field.field_id in effective_policy.focus_field_ids
             )
             for field_id in applicable_long:
                 admitted_shards = tuple(long_results.get(field_id, ()))
@@ -610,7 +699,7 @@ def run_m158(
                 )
                 candidate_text = "\n\n".join(long_contexts.get(field_id, ()))
                 if proposal.state == "present":
-                    admitted, _decision = admit_verified_evidence_subset(
+                    admitted, _decision = effective_policy.evidence_admitter(
                         proposal,
                         candidate_text=candidate_text,
                         product_display_name=product.product_display_name,
@@ -635,6 +724,7 @@ def run_m158(
                     ),
                     provider_call=max(long_calls.get(field_id, (0,))),
                     phase="long_field_merge",
+                    replacement_selector=effective_policy.replacement_selector,
                 )
                 records.append(record)
         finally:
@@ -723,10 +813,10 @@ def run_m158(
         ),
     }
     audit_payload: dict[str, Any] = {
-        "baseline_file_sha256": M158_BASELINE_FILE_SHA256,
-        "baseline_run_sha256": M158_BASELINE_RUN_SHA256,
+        "baseline_file_sha256": effective_policy.baseline_file_sha256,
+        "baseline_run_sha256": effective_policy.baseline_run_sha256,
         "result_run_sha256": run.run_sha256,
-        "catalog_sha256": M158_CATALOG_SHA256,
+        "catalog_sha256": effective_policy.catalog_sha256,
         "business_feedback_sha256": feedback_sha256,
         "provider": ProviderIdentity().model_dump(mode="json"),
         "max_calls": M158_MAX_CALLS,
@@ -760,7 +850,9 @@ def run_m158(
             for item in execution.values
         ],
     }
-    audit_contract = f"insurance-v5-{M158_ARTIFACT_LABEL}-business-quality-audit.v1"
+    audit_contract = (
+        f"insurance-v5-{effective_policy.artifact_label}-business-quality-audit.v1"
+    )
     audit = {
         "contract": audit_contract,
         "artifact_sha256": _canonical_digest(audit_contract, audit_payload),
@@ -787,7 +879,7 @@ def run_m158(
     assessments = assess_feedback_issues(feedback_issues, final_fields)
     status_counts = Counter(item.status for item in assessments)
     assessment_payload: dict[str, Any] = {
-        "baseline_run_sha256": M158_BASELINE_RUN_SHA256,
+        "baseline_run_sha256": effective_policy.baseline_run_sha256,
         "result_run_sha256": run.run_sha256,
         "business_feedback_sha256": feedback_sha256,
         "feedback_evaluation": "COMPLETE" if business_feedback_path else "NOT_RUN",
@@ -802,7 +894,9 @@ def run_m158(
             for assessment in assessments
         ],
     }
-    assessment_contract = f"insurance-v5-{M158_ARTIFACT_LABEL}-business-feedback-assessment.v1"
+    assessment_contract = (
+        f"insurance-v5-{effective_policy.artifact_label}-business-feedback-assessment.v1"
+    )
     assessment = {
         "contract": assessment_contract,
         "artifact_sha256": _canonical_digest(assessment_contract, assessment_payload),
@@ -877,6 +971,8 @@ if __name__ == "__main__":
 __all__ = [
     "M158_BASELINE_FILE_SHA256",
     "M158_BASELINE_RUN_SHA256",
+    "M158Batch",
+    "M158RunPolicy",
     "load_feedback_issues",
     "run_m158",
 ]

@@ -12,7 +12,7 @@ import httpx
 import pdfplumber
 from pydantic import BaseModel, ConfigDict, Field
 
-BAILIAN_OCR_MODEL = "qwen-vl-ocr-2025-11-20"
+BAILIAN_OCR_MODEL: Literal["qwen-vl-ocr-2025-11-20"] = "qwen-vl-ocr-2025-11-20"
 
 
 class OcrError(ValueError):

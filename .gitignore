@@ -29,6 +29,12 @@ temp/
 logs/
 *.pid
 
+# Local insurance extraction evaluation artifacts
+/outputs/
+/provider-run*.json
+/unknown-analysis-*.json
+/docs/insurance-kb/schema-baseline.7z
+
 WeKnora
 WeKnora-lite
 cmd/desktop/build/bin/

@@ -176,7 +176,7 @@ def _multi_normalize(value: object, constraint: ValueConstraint) -> CandidateVal
 
 def normalize_field_value(
     definition: FieldDefinition,
-    value: CandidateValue | list[object] | None,
+    value: CandidateValue | None,
 ) -> CandidateValue | None:
     constraint = parse_value_guidance(definition.value_guidance)
     if value is None or constraint.kind == ValueConstraintKind.FREE_TEXT:

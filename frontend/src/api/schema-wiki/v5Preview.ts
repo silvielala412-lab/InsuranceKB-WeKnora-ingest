@@ -1,16 +1,16 @@
 import {
   parseV5CandidatePreview,
   type V5CandidatePreview,
-} from '../../views/knowledge/schema-wiki/v5-preview/v5PreviewContract.ts'
+} from './v5/v5PreviewContract.ts'
 import {
   parseV5ProviderTrialRun,
   type V5ProviderTrialRun,
-} from '../../views/knowledge/schema-wiki/v5-preview/v5ProviderTrialContract.ts'
+} from './v5/v5ProviderTrialContract.ts'
 import {
   parseV5DynamicFieldGapfillResponse,
   type V5DynamicFieldGapfillRequest,
   type V5DynamicFieldGapfillResponse,
-} from '../../views/knowledge/schema-wiki/v5-preview/v5DynamicGapfillContract.ts'
+} from './v5/v5DynamicGapfillContract.ts'
 
 export interface V5CatalogSchemaIndex {
   readonly ordinal: number

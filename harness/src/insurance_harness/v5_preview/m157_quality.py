@@ -19,7 +19,8 @@ from .m156_quality import (
     audit_m156_candidate,
     build_m156_field_context,
 )
-from .provider_trial import ProviderTrialError, SourcePage, classify_evidence
+from .provider_trial import ProviderTrialError
+from .source_evidence import SourcePage, classify_evidence
 
 M157_MAX_CALLS = 24
 M157_EXPECTED_PRIMARY_CALLS = 20

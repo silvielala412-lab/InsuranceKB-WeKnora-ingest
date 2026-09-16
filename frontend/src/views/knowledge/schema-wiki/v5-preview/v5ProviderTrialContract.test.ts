@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { providerRunFixture } from './v5ProviderTrialFixture.ts'
-import { parseV5ProviderTrialRun } from './v5ProviderTrialContract.ts'
+import { parseV5ProviderTrialRun } from '../../../../api/schema-wiki/v5/v5ProviderTrialContract.ts'
 
 test('closed provider run exposes real preview and redacted receipts', () => {
   const run = parseV5ProviderTrialRun(providerRunFixture())

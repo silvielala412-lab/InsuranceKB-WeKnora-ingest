@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseV5DynamicFieldGapfillResponse } from './v5DynamicGapfillContract.ts'
+import { parseV5DynamicFieldGapfillResponse } from '../../../../api/schema-wiki/v5/v5DynamicGapfillContract.ts'
 
 const H = (character: string) => character.repeat(64)
 

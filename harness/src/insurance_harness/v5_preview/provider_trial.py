@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import os
-import unicodedata
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -51,6 +50,7 @@ from .material_support import (
     is_pdf_extractable_field,
 )
 from .ocr import BAILIAN_OCR_MODEL, BailianOcrClient, OcrPageReceipt
+from .source_evidence import SourcePage, classify_evidence
 
 BAILIAN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 BAILIAN_MODEL = "qwen-plus"
@@ -410,13 +410,6 @@ _EXPECTED_SCHEMA_FIELDS_BY_CLASS: Mapping[str, int] = {
 
 class _ClosedModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-
-class SourcePage(_ClosedModel):
-    document_name: Annotated[str, Field(min_length=1)]
-    document_sha256: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
-    page_number: Annotated[int, Field(ge=1)]
-    text: Annotated[str, Field(min_length=1)]
 
 
 class SourceFileReceipt(_ClosedModel):
@@ -819,81 +812,6 @@ def build_m146_repair_source_text(
         )
         sections.append(f"{service_header}\n{service_text}")
     return "\n\n".join(section for section in sections if section)[:max_characters]
-
-
-def _normalized_evidence_text(value: str) -> str:
-    return "".join(
-        character
-        for character in unicodedata.normalize("NFKC", value)
-        if not character.isspace()
-    )
-
-
-def _page_locator(page: SourcePage) -> str:
-    return f"pdf:{page.document_name}#page={page.page_number}"
-
-
-def _select_advisory_page(
-    matches: Sequence[SourcePage], advisory_locator: str
-) -> SourcePage | None:
-    return next(
-        (page for page in matches if _page_locator(page) == advisory_locator),
-        None,
-    )
-
-
-def classify_evidence(
-    pages: Sequence[SourcePage],
-    quote: str,
-    advisory_locator: str,
-) -> EvidenceResolution:
-    exact_matches = [page for page in pages if quote in page.text]
-    if exact_matches:
-        selected = (
-            exact_matches[0]
-            if len(exact_matches) == 1
-            else _select_advisory_page(exact_matches, advisory_locator)
-        )
-        if selected is not None:
-            return EvidenceResolution(
-                locator=_page_locator(selected),
-                verification_status="VERIFIED",
-            )
-        return EvidenceResolution(
-            locator=advisory_locator,
-            verification_status="AMBIGUOUS",
-            verification_error="V5_EVIDENCE_PAGE_AMBIGUOUS",
-        )
-
-    normalized_quote = _normalized_evidence_text(quote)
-    normalized_matches = [
-        page
-        for page in pages
-        if normalized_quote
-        and normalized_quote in _normalized_evidence_text(page.text)
-    ]
-    if normalized_matches:
-        selected = (
-            normalized_matches[0]
-            if len(normalized_matches) == 1
-            else _select_advisory_page(normalized_matches, advisory_locator)
-        )
-        if selected is not None:
-            return EvidenceResolution(
-                locator=_page_locator(selected),
-                verification_status="NORMALIZED_MATCH",
-            )
-        return EvidenceResolution(
-            locator=advisory_locator,
-            verification_status="AMBIGUOUS",
-            verification_error="V5_EVIDENCE_PAGE_AMBIGUOUS",
-        )
-
-    return EvidenceResolution(
-        locator=advisory_locator,
-        verification_status="UNRESOLVED",
-        verification_error="V5_EVIDENCE_PAGE_NOT_FOUND",
-    )
 
 
 def resolve_evidence_locator(

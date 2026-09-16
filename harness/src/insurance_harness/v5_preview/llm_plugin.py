@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from .business_field_quality import normalize_business_field_value
 from .contracts import (
     CandidateEvidence,
+    CandidateValue,
     EvidenceResolution,
     FieldDefinition,
     IngestRequest,
@@ -521,7 +522,7 @@ class SchemaGuidedLlmPlugin:
                 if row["state"] == "present":
                     normalized_value = normalize_business_field_value(
                         definition.field_id,
-                        normalized_value,
+                        cast(CandidateValue, normalized_value),
                         tuple(
                             item.quote
                             for item in evidence

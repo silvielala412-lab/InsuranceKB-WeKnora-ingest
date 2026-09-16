@@ -52,13 +52,12 @@ from .provider_trial import (
     ProviderIdentity,
     ProviderTrialError,
     ProviderTrialProduct,
-    SourcePage,
     V5ProviderTrialRun,
-    classify_evidence,
     load_provider_trial_run,
     seal_provider_trial_run,
     write_provider_trial_run,
 )
+from .source_evidence import SourcePage, classify_evidence
 
 M156_PRODUCT_IDS: tuple[str, ...] = ("596", "5003", "1830", "1814", "1816", "1828")
 M156_BASELINE_RUN_SHA256 = "dc5d3ecd2bc29a1409c1d581ffd202b03490c7a3cc8e1cda2ef0cf15092fd60b"

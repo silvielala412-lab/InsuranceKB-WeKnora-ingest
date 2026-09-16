@@ -21,12 +21,12 @@ from insurance_harness.v5_preview.dynamic_ingest import (
 )
 from insurance_harness.v5_preview.llm_plugin import SchemaGuidedLlmPlugin, _schema_prompt
 from insurance_harness.v5_preview.m156_quality import M156_FIELD_STRATEGIES
+from insurance_harness.v5_preview.m160_quality import choose_m160_replacement
 from insurance_harness.v5_preview.m160_run import (
     M160_FOCUS_FIELD_IDS,
     M160_MAX_COMPACT_FIELDS,
 )
-from insurance_harness.v5_preview.m160_quality import choose_m160_replacement
-from insurance_harness.v5_preview.provider_trial import SourcePage
+from insurance_harness.v5_preview.source_evidence import SourcePage
 
 
 def _field(field_id: str) -> FieldDefinition:

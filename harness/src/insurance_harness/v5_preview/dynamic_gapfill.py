@@ -29,6 +29,7 @@ from .dynamic_ingest import (
 )
 from .ingest import preview_digest
 from .llm_plugin import CompletionPort, SchemaGuidedLlmPlugin
+from .source_evidence import SourcePage, classify_evidence
 
 DynamicAction = Literal["gapfill", "review"]
 DynamicScope = Literal["matched_snippets", "adjacent_pages", "all_material"]
@@ -209,8 +210,6 @@ class SchemaGuidedDynamicFieldExecutor:
         action: DynamicAction,
         pages: tuple[DynamicMaterialPage, ...],
     ) -> tuple[PluginFieldResult, ...]:
-        from .provider_trial import SourcePage, classify_evidence
-
         request = IngestRequest(
             source_revision_id=preview.source_revision_id,
             catalog_id=preview.catalog_id,

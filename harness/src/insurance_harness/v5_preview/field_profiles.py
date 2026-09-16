@@ -96,7 +96,8 @@ _PROFILES: dict[str, FieldExtractionProfile] = {
         instruction=(
             "报销范围：不得只返回‘合理且必要的医疗费用’等摘要。跨页、跨责任列出材料明确的"
             "费用项目，并保留实际发生/合理且必要、社保目录内外、医院或科室、责任/计划、扣除项、"
-            "不纳入费用和其他计算限制。费用项目有清单时逐项写全，每项或同一完整清单提供直接 Evidence。"
+            "不纳入费用和其他计算限制。费用项目有清单时逐项写全，每项或同一完整清单提供直接 "
+            "Evidence。"
         ),
     ),
     "claim_application_deadline_and_documents": FieldExtractionProfile(

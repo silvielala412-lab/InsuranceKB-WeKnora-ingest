@@ -12,13 +12,13 @@ import {
   type V5CandidatePreview,
   type V5EvidenceVerificationStatus,
   type V5PreviewField,
-} from './v5PreviewContract.ts'
-import type { V5ProviderTrialRun } from './v5ProviderTrialContract.ts'
+} from '../../../../api/schema-wiki/v5/v5PreviewContract.ts'
+import type { V5ProviderTrialRun } from '../../../../api/schema-wiki/v5/v5ProviderTrialContract.ts'
 import type {
   V5DynamicFieldAction,
   V5DynamicFieldDiff,
   V5DynamicFieldGapfillResponse,
-} from './v5DynamicGapfillContract.ts'
+} from '../../../../api/schema-wiki/v5/v5DynamicGapfillContract.ts'
 
 const props = withDefaults(defineProps<{ client?: V5PreviewClient }>(), {
   client: () => createV5PreviewClient(),

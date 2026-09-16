@@ -4,21 +4,21 @@ import argparse
 import os
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-from . import m158_run as _base
+from .field_profiles import BUSINESS_PRIORITY_FIELD_IDS
 from .llm_plugin import OpenAICompatibleCompletion
 from .m154_concurrency import ProductConcurrencyProfile
-from .m156_run import M156Material, M156_PRODUCT_IDS, _sha256_bytes
+from .m156_quality import M156_FOCUS_FIELD_IDS
+from .m156_run import M156_PRODUCT_IDS, M156Material, _sha256_bytes
 from .m156_run import _load_m156_material as _load_base_material
 from .m158_quality import M158_LONG_FIELD_IDS, M158_MAX_CALLS
+from .m158_run import M158Batch, M158RunPolicy, run_m158
 from .m160_quality import (
     admit_m160_evidence_subset,
     choose_m160_replacement,
     m160_repair_hint,
 )
-from .field_profiles import BUSINESS_PRIORITY_FIELD_IDS
-from .m156_quality import M156_FOCUS_FIELD_IDS
 from .provider_trial import (
     APPROVED_PRODUCTS,
     ProviderTrialProduct,
@@ -37,6 +37,10 @@ M160_MAX_COMPACT_FIELDS = 12
 M160_COMPACT_FIELD_IDS = tuple(
     field_id for field_id in M160_FOCUS_FIELD_IDS if field_id not in M158_LONG_FIELD_IDS
 )
+
+
+def _m160_repair_hint(batch: M158Batch) -> str:
+    return m160_repair_hint(batch.kind)
 
 
 def _load_m160_material(
@@ -101,26 +105,29 @@ def run_m160(
 ) -> tuple[V5ProviderTrialRun, Mapping[str, Any], Mapping[str, Any]]:
     """Run the M158 engine against the frozen M159 baseline under M160 gates."""
 
-    base = cast(Any, _base)
     if local_preview_baseline:
         if len(product_ids) != 1:
             raise ValueError("M160_LOCAL_PREVIEW_BASELINE_REQUIRES_ONE_PRODUCT")
         baseline = load_provider_trial_run(baseline_path)
-        base.M158_BASELINE_RUN_SHA256 = baseline.run_sha256
-        base.M158_BASELINE_FILE_SHA256 = _sha256_bytes(baseline_path.read_bytes())
+        baseline_run_sha256 = baseline.run_sha256
+        baseline_file_sha256 = _sha256_bytes(baseline_path.read_bytes())
     else:
-        base.M158_BASELINE_RUN_SHA256 = M160_BASELINE_RUN_SHA256
-        base.M158_BASELINE_FILE_SHA256 = M160_BASELINE_FILE_SHA256
-    base.M158_CATALOG_SHA256 = M160_CATALOG_SHA256
-    base.M158_BUSINESS_FEEDBACK_SHA256 = M160_BUSINESS_FEEDBACK_SHA256
-    base.M158_ARTIFACT_LABEL = "m160"
-    base.M158_FOCUS_FIELD_IDS = tuple(focus_field_ids)
-    base.M158_MAX_COMPACT_FIELDS = max_compact_fields
-    base._load_m156_material = _load_m160_material
-    base._repair_hint = lambda batch: m160_repair_hint(batch.kind)
-    base.admit_verified_evidence_subset = admit_m160_evidence_subset
-    base.choose_m158_replacement = choose_m160_replacement
-    result: Any = base.run_m158(
+        baseline_run_sha256 = M160_BASELINE_RUN_SHA256
+        baseline_file_sha256 = M160_BASELINE_FILE_SHA256
+    policy = M158RunPolicy(
+        baseline_run_sha256=baseline_run_sha256,
+        baseline_file_sha256=baseline_file_sha256,
+        catalog_sha256=M160_CATALOG_SHA256,
+        business_feedback_sha256=M160_BUSINESS_FEEDBACK_SHA256,
+        artifact_label="m160",
+        focus_field_ids=tuple(focus_field_ids),
+        max_compact_fields=max_compact_fields,
+        material_loader=_load_m160_material,
+        repair_hint_builder=_m160_repair_hint,
+        evidence_admitter=admit_m160_evidence_subset,
+        replacement_selector=choose_m160_replacement,
+    )
+    return run_m158(
         baseline_path=baseline_path,
         sample_root=sample_root,
         serious_illness_root=serious_illness_root,
@@ -132,8 +139,8 @@ def run_m160(
         completion_factory=completion_factory,
         concurrency_profile=concurrency_profile,
         product_ids=product_ids,
+        policy=policy,
     )
-    return cast(tuple[V5ProviderTrialRun, Mapping[str, Any], Mapping[str, Any]], result)
 
 
 def main() -> None:

@@ -4,7 +4,7 @@ import test from 'node:test'
 import {
   parseV5CandidatePreview,
   projectV5PreviewNavigation,
-} from './v5PreviewContract.ts'
+} from '../../../../api/schema-wiki/v5/v5PreviewContract.ts'
 
 const H = (character: string) => character.repeat(64)
 

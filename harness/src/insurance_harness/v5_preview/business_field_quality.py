@@ -111,7 +111,11 @@ def normalize_business_field_value(
     return normalized_value
 
 
-def _component_missing(field_id: str, value: CandidateValue | None, material: str) -> tuple[str, ...]:
+def _component_missing(
+    field_id: str,
+    value: CandidateValue | None,
+    material: str,
+) -> tuple[str, ...]:
     proposed = _normalized("，".join(_items(value)))
     source = _normalized(material)
     return tuple(
@@ -154,7 +158,9 @@ def supported_special_coverage_tags(
     return tuple(item for item in _items(value) if _tag_supported(item, evidence_quotes))
 
 
-_SERVICE_FREQUENCY = re.compile(r"^(?P<name>.+?)\s+(?P<frequency>不限次|\d+\s*次\s*/\s*(?:年|住院))$")
+_SERVICE_FREQUENCY = re.compile(
+    r"^(?P<name>.+?)\s+(?P<frequency>不限次|\d+\s*次\s*/\s*(?:年|住院))$"
+)
 _SERVICE_SCENES = ("院前就医", "院中治疗", "院后康复")
 
 

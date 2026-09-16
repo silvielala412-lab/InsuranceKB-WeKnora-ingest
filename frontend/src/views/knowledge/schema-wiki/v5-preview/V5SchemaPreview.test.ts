@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { V5PreviewClient } from '../../../../api/schema-wiki/v5Preview.ts'
 import V5SchemaPreview from './V5SchemaPreview.vue'
-import { parseV5CandidatePreview } from './v5PreviewContract.ts'
-import { parseV5ProviderTrialRun } from './v5ProviderTrialContract.ts'
+import { parseV5CandidatePreview } from '../../../../api/schema-wiki/v5/v5PreviewContract.ts'
+import { parseV5ProviderTrialRun } from '../../../../api/schema-wiki/v5/v5ProviderTrialContract.ts'
 import { providerRunFixture } from './v5ProviderTrialFixture.ts'
 
 const H = (character: string) => character.repeat(64)

@@ -1,7 +1,7 @@
 # M139 九产品抽取评测
 
-日期：2026-09-01  
-前端：`http://127.0.0.1:5174/v5-preview`  
+日期：2026-09-01
+前端：`http://127.0.0.1:5174/v5-preview`
 接口：`http://127.0.0.1:8091/v5-preview-api/provider-run`
 
 ## 先说结论
@@ -98,4 +98,3 @@ Evidence 绑定 -> 人工/质量门确认 -> 版本化 SchemaPack -> 正式抽�
   最坏为 16 次，没有超过批准的 18 次。
 - `serving_effect=NONE`，九款均为 `REVIEW_REQUIRED`；没有写数据库、Candidate、Release
   或 Active，没有提交或推送 GitHub。
-

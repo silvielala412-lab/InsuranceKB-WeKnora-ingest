@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 from .business_field_quality import (
     audit_business_priority_candidate,
@@ -366,12 +367,12 @@ def choose_m160_replacement(
     if field_id == "special_coverage_and_exclusion_tags":
         baseline_canonical = normalize_business_field_value(
             field_id,
-            baseline_value,
+            cast(CandidateValue, baseline_value),
             tuple(baseline_evidence_quotes),
         )
         proposed_canonical = normalize_business_field_value(
             field_id,
-            proposed_value,
+            cast(CandidateValue, proposed_value),
             tuple(proposed_evidence_quotes),
         )
         if (

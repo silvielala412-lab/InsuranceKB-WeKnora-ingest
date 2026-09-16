@@ -46,11 +46,13 @@ def test_single_product_preview_does_not_require_feedback_workbook(monkeypatch) 
     captured: dict[str, object] = {}
     expected = (object(), {}, {})
 
-    def fake_run_m158(**kwargs: object) -> tuple[object, dict[object, object], dict[object, object]]:
+    def fake_run_m158(
+        **kwargs: object,
+    ) -> tuple[object, dict[object, object], dict[object, object]]:
         captured.update(kwargs)
         return expected
 
-    monkeypatch.setattr(m160_run._base, "run_m158", fake_run_m158)
+    monkeypatch.setattr(m160_run, "run_m158", fake_run_m158)
 
     result = m160_run.run_m160(
         baseline_path=Path("baseline.json"),
@@ -69,6 +71,10 @@ def test_single_product_preview_does_not_require_feedback_workbook(monkeypatch) 
     assert result == expected
     assert captured["product_ids"] == ("596",)
     assert captured["business_feedback_path"] is None
+    policy = captured["policy"]
+    assert isinstance(policy, m160_run.M158RunPolicy)
+    assert policy.artifact_label == "m160"
+    assert policy.focus_field_ids == m160_run.M160_FOCUS_FIELD_IDS
 
 
 def test_compact_retry_scope_excludes_long_fields() -> None:
