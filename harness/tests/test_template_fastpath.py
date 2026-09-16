@@ -6,7 +6,11 @@ from pathlib import Path
 
 from insurance_harness.compiler.llm import ReplayClient
 from insurance_harness.compiler.pipeline import ExtractionPipeline, PipelineConfig
-from insurance_harness.compiler.prompts import GAPFILL_SYSTEM, VOTE_VARIANT_SUFFIXES
+from insurance_harness.compiler.prompts import (
+    GAPFILL_SYSTEM,
+    SEMANTIC_RESOLUTION_SYSTEM,
+    VOTE_VARIANT_SUFFIXES,
+)
 from insurance_harness.compiler.sections import family_fingerprint, split_sections
 from insurance_harness.compiler.templates import (
     ExtractionTemplate,
@@ -179,7 +183,16 @@ class ScriptedClient:
         fids = re.findall(r"field_id=(\w+)", user)
         items = []
         for fid in fids:
-            if fid == "hesitation_period" and "犹豫期" in user:
+            if fid == "pay_term" and "趸交" in user:
+                items.append(
+                    {
+                        "field_id": fid,
+                        "value": "趸交、3年、6年",
+                        "tri_state": "present",
+                        "evidence": [{"page": 1, "quote": "趸交 3年 6年"}],
+                    }
+                )
+            elif fid == "hesitation_period" and "犹豫期" in user:
                 items.append(
                     {
                         "field_id": fid,
@@ -247,16 +260,17 @@ async def test_f3_4_f3_5_pipeline_fastpath_end_to_end(tmp_path: Path) -> None:
     )
     by_id = {r.field_id: r for r in result.records}
 
-    # F3.1/F3.5：fast path 值 + data_quality=table_parsed
+    # Mission 136：模板只提供候选，最终字段由 LLM 选择并通过回验。
     pay = by_id["pay_term"]
     assert pay.tri_state == "present" and pay.value == "趸交、3年、6年"
-    assert pay.data_quality == "table_parsed" and pay.confidence == "high"
+    assert pay.data_quality == "llm_extracted" and pay.confidence == "medium"
     # 通用管道字段不受影响，data_quality 默认 llm_extracted
     hes = by_id["hesitation_period"]
     assert hes.tri_state == "present" and hes.data_quality == "llm_extracted"
 
-    # F3.4：命中字段退出通用抽取/补漏/投票（prompt 不得出现 pay_term）
-    assert all("pay_term" not in p for p in client.prompts)
+    # Mission 136：规则候选不再直接出场，必须进入一次 LLM 语义裁决；
+    # 语义裁决成功后才退出通用抽取/补漏/投票。
+    assert any(SEMANTIC_RESOLUTION_SYSTEM in p and "pay_term" in p for p in client.prompts)
     assert not any(
         s in p for p in client.prompts for s in VOTE_VARIANT_SUFFIXES
     ), "fastpath 高风险字段不得进入投票采样"

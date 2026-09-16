@@ -223,7 +223,7 @@ def _build_production_compiler_client_for_test(
 
 def _role_for_stage(stage: str) -> ModelRole:
     base_stage = stage.removesuffix("_retry")
-    if base_stage.startswith("extract"):
+    if base_stage.startswith("extract") or base_stage == "semantic_resolve":
         return "extract"
     if base_stage == "gapfill":
         return "gap"

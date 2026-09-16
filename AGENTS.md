@@ -12,9 +12,28 @@ authority；当前条件接受 WeKnora 承载该 Active Head。Harness 不保存
 serving Head，旧 PostgreSQL `current_release`/ReleaseSnapshot/publisher 链只作
 冻结审计，不构成当前实现授权。
 
-## 开工前唯一阅读序列
+## 当前生效：本地独立开发模式
 
-任何任务开始前必须从本文件开始，并依次阅读：
+本仓库当前仅作为独立的本地开发与测试版本，不再作为原 GitHub 仓库的交付
+lane。本节优先于下文所有 Mission Card、OpenSpec、SDD、PR、clean worktree、
+review/integration 与 GitHub 门禁描述：
+
+- 用户要求范围内的本地源码、配置、测试和文档修改可以直接实施并验证；不要求
+  先建 Mission Card、OpenSpec、Requirement ID、RED 证据、PR 或逐项批准。
+- 允许在当前工作区工作，但必须保留并兼容用户已有的未提交修改；测试规模按
+  风险决定，SDD/Goal/验证矩阵仅在用户明确要求时创建。
+- 默认不得向原 `origin` 或其他远程仓库执行 `push`、创建/更新 PR、merge，或
+  改写远程状态。以后如需恢复远程交付，必须由用户对 exact remote 和动作另行
+  明确授权，届时才重新启用下文的上游交付流程。
+- 本地开发授权不扩展为生产数据库写入、migration/backfill、部署、发布、激活、
+  破坏性操作，或会付费/传送业务数据的外部 provider 调用；这些动作仍需单独
+  明确授权。
+- 下文的产品架构、安全不变量与 serving authority 约束继续有效；仅流程门禁在
+  本地独立开发模式下停用。
+
+## 上游交付参考阅读序列（当前非门禁）
+
+仅当用户明确恢复原仓库的上游交付流程时，才按以下顺序阅读：
 
 1. 830 任务先读 `jlx_enterprise_llm_wiki_technical_blueprint_830.md`、
    `docs/insurance-kb/28-development-execution-charter-830.md` 与
@@ -29,10 +48,9 @@ serving Head，旧 PostgreSQL `current_release`/ReleaseSnapshot/publisher 链只
 
 `CLAUDE.md` 不再维护另一份必读清单；其他开发入口必须指回本节。
 
-## 强制 SDD 流程
+## 上游交付 SDD 流程（当前停用）
 
-所有会写仓库、改变行为、迁移、配置、外部状态或验证口径的工作必须按以下
-队列推进；后一步不得补写前一步证据：
+以下队列只适用于用户明确恢复的上游/正式交付，不是本地开发的前置条件：
 
 1. `Goal`：记录业务目标、唯一 Owner、范围、非目标和 STOP 条件；需要外部写入
    或新授权时先取得 Mission Card 批准。
@@ -141,11 +159,10 @@ S0-R 是输入就绪后的两工作日证伪窗口，不是生产 Kernel 交付�
 OpenSpec 043 为 `SPEC-ONLY / REQUIRES AMENDMENT AFTER S0-R`，不得按旧
 `wiki_projector` 语义原样实现。
 
-## MVP 主航道协作
+## 上游 MVP 主航道协作（当前停用）
 
-任何会写入仓库、修改迁移/功能规格/行为，或改变 GitHub/外部状态的交付任务，
-开工前都必须由 Owner 向用户提交 **Mission Card** 并取得逐项批准。Mission
-Card 至少包含：
+仅当用户明确恢复原 GitHub 仓库交付时，本节流程才生效。届时由 Owner 向用户
+提交 **Mission Card** 并取得逐项批准。Mission Card 至少包含：
 
 - 业务目标与现在做的理由；
 - 唯一写 Owner、执行模型与 reasoning effort；
@@ -180,9 +197,12 @@ Reviewer finding 只能归为：
 不追求理论完美。一个 PR 只交付一个用户价值，默认应在 1–2 个工作日完成且
 reviewer 可在 30 分钟内理解；超出时拆分，或重新取得用户批准。
 
-硬门禁：
+上游交付硬门禁（当前本地开发不适用）：
 
-- 没有 OpenSpec 不写功能代码，先测试后实现。AI 默认不 commit/push；用户对指定 Mission 明确授权后，只有总控 AI 可在 exact identity、独立复审和门禁通过后执行 commit/push/PR/merge，开发与评审 lane 不得自行执行。
+- 恢复上游交付后，没有 OpenSpec 不写功能代码，先测试后实现。AI 默认不
+  commit/push；用户对指定 Mission 明确授权后，只有总控 AI 可在 exact
+  identity、独立复审和门禁通过后执行 commit/push/PR/merge，开发与评审 lane
+  不得自行执行。
 - 生产只允许经批准、身份冻结的 MiniMax/Qwen/Qwen-VL 能力档弱模型；强模型
   只能用于隔离的离线标注或评测，不能成为生产依赖。
 - ReviewPolicy 是按 Space 版本化配置，合法模式为

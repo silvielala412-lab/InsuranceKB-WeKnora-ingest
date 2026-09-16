@@ -141,7 +141,12 @@ export default defineConfig({
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-      }
+      },
+      '/v5-preview-api': {
+        target: process.env.VITE_V5_PREVIEW_TARGET || 'http://127.0.0.1:8091',
+        changeOrigin: true,
+        secure: false,
+      },
     }
   },
   // `vite preview` 用生产构建产物(dist)本地起服务，是最接近 release 镜像的环境：
@@ -160,7 +165,12 @@ export default defineConfig({
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
-      }
+      },
+      '/v5-preview-api': {
+        target: process.env.VITE_V5_PREVIEW_TARGET || 'http://127.0.0.1:8091',
+        changeOrigin: true,
+        secure: false,
+      },
     }
   }
 })

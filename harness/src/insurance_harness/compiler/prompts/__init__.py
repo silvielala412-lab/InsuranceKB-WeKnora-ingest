@@ -5,12 +5,13 @@ prompt 约定（04 Step 2）：模型只输出字段值 + 逐字引文 + 页码�
 字段级抽取指令（hint）来自 06 A8 的 FIELD_EXTRACTION_HINTS 资产思想。
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from ...goldenset.pdf import PageText
 from ...schemas import FieldSpec
 
 PROMPT_VERSION = "ep-v1.0"
+SEMANTIC_RESOLUTION_PROMPT_VERSION = "semantic-resolve-v1.0"
 
 # --- 分批定向抽取（Step 2） ---
 
@@ -27,6 +28,24 @@ EXTRACTION_SYSTEM = """你是寿险产品文档信息抽取器。你收到文档
   禁止把"没找到"写成"无/不含"；禁止输出"未提及/详见条款"这类占位文字。
 - 只依据本次给出的节选判断，不要引用节选之外的内容。
 - 只输出 JSON 数组本身，不要任何解释、前后缀或代码围栏。"""
+
+# --- 确定性候选的语义裁决 ---
+
+SEMANTIC_RESOLUTION_SYSTEM = """你是寿险产品字段的语义裁决器。你会收到同一字段由规则、模板、\
+产品主数据或不同文档位置产生的候选，以及候选页的原文上下文。请在候选之间按字段定义、\
+产品身份和来源语义选择真正代表本字段的值；候选不准确时可以改用上下文中明确出现的\
+原文值，但不能凭经验编造。
+
+只输出一个 JSON 数组，恰好一个元素：
+{"field_id":"...","doc":"文档名","value":"字符串或 null",\
+"tri_state":"present|absent_explicitly|unknown",\
+"evidence":[{"page":页码整数,"quote":"原文逐字摘录"}],"selected_candidate":整数或 null}
+
+约束：
+- present 或 absent_explicitly 必须有至少一条能在对应页逐字回验的 Evidence；
+- unknown 表示现有候选和上下文不足以确定，不表示字段不存在；
+- “以下简称”这类普通指代不能冒充正式的险种简称；
+- 只使用本次给出的候选和原文上下文；不能输出解释、前后缀或代码围栏。"""
 
 # --- 定向补漏：判断题式二次提问（Step 6） ---
 
@@ -84,6 +103,52 @@ def build_extraction_user(
     if feedback:
         user += f"\n\n## 上一轮问题（必须修正）\n{feedback}"
     return user
+
+
+def build_semantic_resolution_user(
+    product_name: str,
+    field: FieldSpec,
+    candidates: Sequence[object],
+    pages_by_doc: Mapping[str, Sequence[PageText]],
+) -> str:
+    """组装候选裁决上下文；保留候选和页码，不把整本 PDF重复塞入请求。"""
+    lines = [
+        f"产品：{product_name}",
+        f"字段：{_field_line(field)}",
+        "",
+        "## 候选值（编号从 0 开始）",
+    ]
+    context_keys: list[tuple[str, int]] = []
+    for index, candidate in enumerate(candidates):
+        doc = str(getattr(candidate, "doc", ""))
+        value = getattr(candidate, "value", None)
+        tri_state = getattr(candidate, "tri_state", "unknown")
+        origin = getattr(candidate, "origin", "")
+        evidence = getattr(candidate, "evidence", ()) or ()
+        lines.append(
+            f"候选 {index}：来源={origin}；文档={doc}；值={value!r}；状态={tri_state}"
+        )
+        for ev in evidence:
+            page = int(getattr(ev, "page", 0))
+            quote = str(getattr(ev, "quote", ""))
+            lines.append(f"  Evidence：第{page}页｜{quote}")
+            context_keys.append((doc, page))
+
+    lines.extend(["", "## 候选页原文上下文"])
+    rendered: set[tuple[str, int]] = set()
+    for doc, page in context_keys:
+        pages = pages_by_doc.get(doc, ())
+        for fragment in pages:
+            if abs(fragment.page_no - page) > 1:
+                continue
+            key = (doc, fragment.page_no)
+            if key in rendered:
+                continue
+            rendered.add(key)
+            lines.append(f"【文档：{doc}；第{fragment.page_no}页】\n{fragment.text}")
+    if not rendered:
+        lines.append("（没有可用的候选页上下文）")
+    return "\n\n".join(lines)
 
 
 def build_gapfill_user(

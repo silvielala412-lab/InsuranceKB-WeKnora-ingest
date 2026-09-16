@@ -8,6 +8,28 @@
 
 ## Change 编号台账
 
+| 149 | six-insurance-class-local-preview | ✅ Mission 149 / LOCAL EVAL COMPLETED | 保留 M146 三款并补跑年金险、意外险、失能收入损失保险各一款；新增 9 PDF、6/6 次 qwen-plus；六款材料支持口径 126/145=86.90%，8091/5174 已切换；零 DB/Release/Active/GitHub 写入 |
+| 150 | serious-illness-two-product-local-preview | ✅ Mission 150 / LOCAL EVAL COMPLETED | 新增重疾险 1828、L2332 两款；6 份 PDF、4/6 次 qwen-plus；合并预览 8 款/7 类，材料支持条件下 78.26% 与 100%；8091/5174 已切换，零 DB/Release/Active/GitHub 写入 |
+| 151 | field-semantic-retrieval-gapfill | ✅ Mission 151 / LOCAL CODE COMPLETE | 字段全解析页候选召回、Schema 语义词与答案形态排序、片段字符位置、费率表降噪、动态补抽共用 Retriever；业务 11 个直接漏抽字段 Top-5 候选召回 11/11；37 项 V5 测试通过，零 provider/DB/live/GitHub 写入 |
+| 152 | eight-product-dynamic-gapfill-review | 🚧 Mission 152 / APPROVED | 基于 M150 八款冻结 Preview 与 M151 Retriever，补抽 unknown、复核业务表中的不全/错误字段；最多 18 次 qwen-plus，独立 artifact，更新本地 8091/5174；零生产 DB/Release/Active/GitHub 写入 |
+| 153 | business-badcase-regression-table-aware-performance | 🚧 Mission 153 / APPROVED | 四份业务问题表结构化、问题类型分流、表格感知候选、已确认结果防回退、单次运行复用与上下文降重；不做持久化候选缓存，零 provider/DB/live/GitHub 写入 |
+| 154 | four-product-concurrency-performance | ✅ Mission 154 / LOCAL CODE COMPLETE | 最多四路产品级并发、产品内批次串行、全局调用预算、稳定顺序合并、429 自动降级和阶段耗时；55 项 V5 测试通过，零 provider/DB/live/GitHub 写入 |
+| 155 | eight-product-concurrent-provider-run | ✅ Mission 155 / LOCAL EVAL COMPLETED | 八款、26 PDF、454 页；16/18 次 qwen-plus，材料支持口径 172/185=92.97%，Provider 6m54s、端到端 22m29s；8091/5174 已切换，零生产 DB/Release/Active/GitHub 写入 |
+| 156 | seven-field-atomic-completeness | 🚧 Mission 156 / APPROVED | 六款、20 PDF、390 页；七个重点字段做全材料候选、原子事实、完整性复核和真实重跑；最多 18 次 qwen-plus，独立结果，零生产 DB/Release/Active/GitHub 写入 |
+| 157 | seven-field-section-applicability-evidence | ✅ Mission 157 / LOCAL EVAL COMPLETED | 六款、20 PDF、390 页；24/24 次 qwen-plus，接受 4 个值变化，材料支持口径保持 133/143=93.01%；主附险权益纠偏有效，疾病定义仍受 32K 输出截断影响；8091/5174 已切换，零生产 DB/Release/Active/GitHub 写入 |
+
+| 148 | dynamic-field-gapfill-control | ✅ Mission 148 / LOCAL CODE COMPLETE | 前端字段级补抽/复核入口；后端按候选片段→相邻页→全材料动态扩展并返回 Candidate/Evidence/diff；30 个 Python、4 个前端测试及 type-check/build 通过；不跑产品、不调用 Provider、不写 DB/Active/GitHub |
+
+| 146 | service-supplemental-materials | ✅ Mission 146 / LOCAL EVAL COMPLETED | 596 增加 2 份服务权益 PDF（60 页文本 + 2 页 OCR）；服务字段新增 3 个 present，固定基础字段 83/153→85/153；6 次 qwen-plus、2 次 qwen-vl-ocr；8091/5174 已切换；零 DB/Release/Active/GitHub 写入 |
+
+| 145 | m144-three-product-provider-run | ✅ Mission 145 / LOCAL EVAL COMPLETED | 596/5003/1826，9 PDF，6/6 次 qwen-plus；简介/概览 3/3 present；材料支持口径 66/77（85.71%），8091/5174 已切换；零 DB/Release/Active/GitHub 写入 |
+
+| 144 | content-synthesis-pass | ✅ Mission 144 / CODE COMPLETE | 产品简介、产品概览进入独立内容总结目标集；23 项 Python、9 项前端契约测试通过；未调用 provider、未改服务/DB/GitHub |
+
+| 143 | three-field-full-material-semantic-pass | ✅ Mission 143 / LOCAL EVAL COMPLETED | 五款/15 PDF/10 次 qwen-plus；材料支持口径 109/129（84.50%）；8091/5174 已验证；零 DB/Release/Active/GitHub 写入 |
+
+| 142 | material-supported-recall | 🚧 Mission 已批准 / 实现与三产品验证进行中 | 混合字段语义补抽、材料支持分母与 M142 独立试跑；不写生产、不推送 GitHub |
+
 | 号 | change | 状态 | 备注 |
 |---|---|---|---|
 | 001 | harness-scaffold | ✅ 已交付 | |
@@ -118,6 +140,12 @@
 | 109+ | 暂停新增外围 Mission | ⏸️ MVP 主航道收口 | 不再用微型 OpenSpec、adapter 或 synthetic 任务替代真实闭环 |
 | 120 | schema-wiki-medical-596-1-mvp | MVP-ACCEPTED / C7 FLOW+UI PASS / C4 DEFERRED | 最终有效代码经 PR #123 以一个重建提交进入 main；既有 epoch2 纯 GET 重开完成 7 分类/67 字段、17/17 citation、三 PDF 与 exact authority。旧 R1、release/receipt/Head/75 members、五表和生产 8081 不变；DB/provider/model/C4/审批/签名/发布 effects 0 |
 | 122 | schema67-golden-quality-gate | CODE-INTEGRATED / QUALITY-INCONCLUSIVE / HISTORY REFERENCE | `linyao` source Review COMPLETED；Schema67 `COMPLETE_67`（67/0，51保留+16合法 unknown）；旧 EC-02 真实结论 `QUALITY_FAIL` 且不在 main。后续 C4 从最新 main 新开 Mission，不继承旧 Candidate/reviewer/attestor |
+| 123 | llm-first-candidate-resolution | 🚧 Mission 136 / LOCAL WORKTREE ONLY | 规则、模板和外部映射只生成候选；所有业务候选进入一次 LLM 语义裁决，再经过 Evidence/类型校验。禁止原项目推送、生产写入、真实 PDF 外发与 provider 调用 |
+| 124 | nine-product-v5-extraction-evaluation | ✅ Mission 139 / LOCAL EVAL COMPLETED | 9 款/27 PDF/399 页/6 类 Schema 已完成；M139 记录 9 次 qwen-plus，材料支持口径 237/324，8091/5174 已验证；M137/M138 保留，零 DB/Release/Active/GitHub 写入 |
+| 140 | coverage-summary-semantic-recall | ✅ Mission 140 / LOCAL EVAL COMPLETED | 三款/9 PDF/6 次 qwen-plus；`coverage_summary` 三款均 present，原三款有值字段未回退；M140 第一轮服务中，重跑文件单独保留；零 DB/Release/Active/GitHub 写入 |
+| 141 | v5-value-guidance-normalization | ✅ Mission 141 / LOCAL EVAL COMPLETED | v5 取值说明编译为字段约束并接入 LLM prompt/回包归一化；三款/9 PDF/6 次 qwen-plus；present 116/221→121/221；M140 保留，零 DB/Release/Active/GitHub 写入 |
+| 158 | business-seven-field-quality-closure | 🚧 Mission 158 / WIP | 六款 20 PDF 的七个业务重点字段专项闭环；长字段分片、有效 Evidence 子集、短字段联合校验和 30 条反馈独立验收；最多 32 次 qwen-plus，零 DB/Release/Active/GitHub 写入 |
+| 160 | business-priority-field-completeness | 🚧 Mission 160 / LOCAL EVAL | 基于 M159 六款 20 PDF，强化等待期复合条件及缴费、权益、责任、免责、疾病定义字段的完整抽取与 Evidence 门禁；最多 32 次 qwen-plus，零 DB/Release/Active/GitHub 写入 |
 
 ## Alembic 迁移编号台账（harness/migrations/versions/）
 

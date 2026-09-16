@@ -35,9 +35,12 @@ UnknownReason = Literal[
     "dead_letter",  # 传输级失败超重试上限 E1.2
     "missing_in_response",  # 模型未返回该字段
     "incompatible_value",  # 字段-值语义不兼容（024 E6，Q012 护栏）
+    "candidate_unresolved",  # 已有确定性候选，但 LLM 未能完成可验证裁决
 ]
 
-CandidateOrigin = Literal["extract", "gapfill", "vote", "judge", "fastpath"]
+CandidateOrigin = Literal[
+    "extract", "gapfill", "vote", "judge", "fastpath", "semantic_resolve"
+]
 
 # 来源可信度分级（12-dayu #2；与 confidence=过程可信度 正交）：
 # structured_direct=确定性文本直取（正则锚点）；table_parsed=表格结构化列直取；
@@ -262,7 +265,7 @@ class AuditAttempt(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     attempt_id: str
-    stage: str  # extract / extract_retry / vote / judge / gapfill
+    stage: str  # extract / semantic_resolve / vote / judge / gapfill
     prompt_version: str
     request_key: str
     outcome: str  # parsed / parse_failed / no_value …
@@ -274,7 +277,7 @@ class ExtractionAudit(BaseModel):
     - ``prompt_variant_used``：该值**实际经过**的模板标识（baseline@…/fastpath/
       gapfill-default@v1/targeted@vN）——注册表 membership 不得冒充实际使用；
     - ``variant_assignment``：实验分桶臂（control/treatment；实验关闭时 None）；
-    - ``winning_origin``：产生最终值的路径（extract/vote/judge/fastpath/gapfill）；
+    - ``winning_origin``：产生最终值的路径（extract/semantic_resolve/vote/judge/fastpath/gapfill）；
     - ``compat_reject``：字段-值兼容性拒绝原因（E6.3，无则 None）；
     - ``pointer_terms``：source_pointer 解析出的定向检索词（E6/补漏审计）。
     """
@@ -285,7 +288,7 @@ class ExtractionAudit(BaseModel):
     variant_assignment: str | None = None
     winning_origin: str = "extract"
     # E7 R2：attempt 链——每次真实出站调用一条；winning_attempt_id 指向真正产生
-    # 最终值的 attempt（fastpath 等非 LLM 来源为 None）。prompt_variant_used 由
+    # 最终值的 attempt（仅 fastpath 等非 LLM 来源为 None）。prompt_variant_used 由
     # winning attempt 派生（无 winner 时 fastpath/baseline 兜底），不再有继承歧义。
     attempts: tuple[AuditAttempt, ...] = ()
     winning_attempt_id: str | None = None

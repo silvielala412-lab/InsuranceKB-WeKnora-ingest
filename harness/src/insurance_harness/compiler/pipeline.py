@@ -81,6 +81,7 @@ from .models import (
 from .prompts import PROMPT_VERSION
 from .routing_data import GROUP_ORDER, group_of_field
 from .sections import family_fingerprint, route_groups, split_sections
+from .semantic_resolution import resolve_candidates
 from .templates import TemplateRegistry, run_fastpath
 from .templates.tables import TableStructureProvider
 from .variants import VariantRegistry
@@ -248,11 +249,18 @@ def _doc_rank(doc: str) -> int:
 
 def merge_candidates(cands: list[FieldCandidate]) -> dict[str, FieldCandidate]:
     """按 field_id 合并多 (doc, window) 候选：present>absent>unknown、
-    judge>fastpath>vote>gapfill>extract、证据多/值长者优先、条款优先于说明书。
+    judge>semantic_resolve>vote>gapfill>fastpath>extract、证据多/值长者优先、条款优先于说明书。
 
-    fastpath 是确定性直取（006 F3.4），可信度仅次于裁决。"""
+    semantic_resolve 是对确定性候选的 LLM 裁决；原始 fastpath 候选不会直接出场。"""
     tri_rank = {"present": 0, "absent_explicitly": 1, "unknown": 2}
-    origin_rank = {"judge": 0, "fastpath": 1, "vote": 2, "gapfill": 3, "extract": 4}
+    origin_rank = {
+        "judge": 0,
+        "semantic_resolve": 1,
+        "vote": 2,
+        "gapfill": 3,
+        "fastpath": 4,
+        "extract": 5,
+    }
 
     def rank(c: FieldCandidate) -> tuple[int, int, int, int, int, int]:
         return (
@@ -738,12 +746,16 @@ class ExtractionPipeline:
                         for f in fields
                     ]
 
-        # 006 F3：fast path 先行——命中字段确定性直取并退出通用抽取（战场缩小）
+        # 006 F3 + Mission 136：fast path 只产生候选；候选汇总后统一交给 LLM
+        # 语义裁决，不能再因为规则命中而直接成为最终字段值。
         fastpath_covered: set[str] = set()
         if self._templates is not None:
             fields_by_id = {f.field_id: f for f in line.extractable_fields}
+            fastpath_candidates: list[FieldCandidate] = []
+            pages_by_doc: dict[str, list[PageText]] = {}
             for raw in state["docs"]:
                 payload = DocPayload.model_validate(raw)
+                pages_by_doc[payload.doc] = payload.pages
                 template = self._templates.find(payload.family_id, payload.doc)
                 if template is None:
                     continue
@@ -763,11 +775,28 @@ class ExtractionPipeline:
                     provider=self._table_provider,
                     sections=payload.sections,
                 )
-                candidates.extend(fp_cands)
-                fastpath_covered |= {c.field_id for c in fp_cands}
+                fastpath_candidates.extend(fp_cands)
                 for entry in manifest.docs:
                     if entry.doc == payload.doc:
                         entry.fastpath_fields = len(fp_cands)
+            by_field: dict[str, list[FieldCandidate]] = {}
+            for candidate in fastpath_candidates:
+                by_field.setdefault(candidate.field_id, []).append(candidate)
+            for field_id, field_candidates in by_field.items():
+                field = fields_by_id[field_id]
+                resolved = await resolve_candidates(
+                    metered,
+                    state["product_name"],
+                    field,
+                    field_candidates,
+                    pages_by_doc,
+                    ledger=ledger,
+                )
+                candidates.append(resolved)
+                # 只有语义裁决成功的字段才退出通用抽取；失败字段仍可由通用
+                # 抽取/补漏恢复，原始规则候选不会成为最终值。
+                if resolved.tri_state != "unknown":
+                    fastpath_covered.add(field_id)
             manifest.template_registry_version = self._templates.version
             manifest.fastpath_fields = len(fastpath_covered)
 
@@ -976,14 +1005,15 @@ class ExtractionPipeline:
             )
 
         # 投票只对 risk_level=high 且已有 present 候选的字段发生（E4.2/E4.3）；
-        # fastpath 确定性直取字段退出投票（006 F3.4，12 #1：数字类字段退出投票）
+        # 已完成模板候选的语义裁决字段也退出投票；投票只补充尚未经过
+        # LLM 语义选择的通用抽取结果（006 F3.4，12 #1）。
         vote_targets = [
             (f, merged[f.field_id])
             for f in line.extractable_fields
             if f.risk_level == "high"
             and f.field_id in merged
             and merged[f.field_id].tri_state == "present"
-            and merged[f.field_id].origin != "fastpath"
+            and merged[f.field_id].origin not in {"fastpath", "semantic_resolve"}
         ]
         voted = await asyncio.gather(*(do_vote(f, c) for f, c in vote_targets))
         for (_field, _), (cand, vote_error) in zip(vote_targets, voted, strict=True):
@@ -1617,7 +1647,7 @@ def _to_pred(
     confidence = cand.confidence
     if cand.origin == "extract" and cand.tri_state in ("present", "absent_explicitly"):
         confidence = "high"  # 出场即已通过回验（校验链保证）
-    # 006 F3.5（12 #2）：来源可信度分级——fastpath 由锚点类型决定，其余为模型抽取
+    # 006 F3.5（12 #2）：来源可信度分级——确定性候选经过语义裁决后按模型抽取记账
     dq_raw = cand.metadata.get("data_quality")
     data_quality: DataQuality = (
         cast(DataQuality, dq_raw)
@@ -1625,7 +1655,7 @@ def _to_pred(
         else "llm_extracted"
     )
     # E7：prompt_variant_used 在真实使用处记录（gapfill stamp）；未 stamp 的
-    # 候选按 origin 如实归因——fastpath=确定性直取（无 prompt）、其余（extract/
+    # 候选按 origin 如实归因——fastpath=确定性直取（无 prompt）、其余（含 semantic_resolve/
     # vote/judge/dead_letter）均经 baseline 抽取 prompt。注册表 membership 不参与。
     raw_attempts = cand.metadata.get("attempts")
     attempts = tuple(
@@ -1690,7 +1720,7 @@ def _to_pred(
 
 def _attempt_origin(stage: str) -> str:
     """Map retry/detail stages back to the value-producing pipeline origin."""
-    for origin in ("extract", "gapfill", "vote", "judge"):
+    for origin in ("extract", "gapfill", "vote", "judge", "semantic_resolve"):
         if stage == origin or stage.startswith(f"{origin}_"):
             return origin
     return stage

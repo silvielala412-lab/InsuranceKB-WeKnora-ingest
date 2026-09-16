@@ -51,6 +51,12 @@ const router = createRouter({
       component: () => import("../views/auth/Login.vue"),
       meta: { requiresAuth: false, requiresInit: false }
     },
+    ...(import.meta.env.DEV ? [{
+      path: "/v5-preview",
+      name: "v5Preview",
+      component: () => import("../views/knowledge/schema-wiki/v5-preview/V5SchemaPreview.vue"),
+      meta: { requiresAuth: false, requiresInit: false }
+    }] : []),
     // Embed chat is a separate entry (embed.html + embed-main.ts), not this SPA.
     {
       path: "/register",

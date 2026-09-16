@@ -1,7 +1,7 @@
 # 29 · 830 Goal Cards（统一知识库与真实验收版）
 
 > 修订日期：2026-08-31
-> 当前授权：`B0_ONLY`
+> 当前授权：`B0_ONLY + MISSION_136_LOCAL_WORKTREE + MISSION_139_LOCAL_PROVIDER_RUN + MISSION_148_LOCAL_DYNAMIC_GAPFILL + MISSION_149_LOCAL_SIX_CLASS_PREVIEW + MISSION_150_LOCAL_SERIOUS_ILLNESS_PREVIEW + MISSION_151_LOCAL_FIELD_RETRIEVAL + MISSION_152_LOCAL_EIGHT_PRODUCT_GAPFILL + MISSION_153_LOCAL_QUALITY_PERFORMANCE + MISSION_154_LOCAL_PRODUCT_CONCURRENCY + MISSION_155_LOCAL_PROVIDER_RUN + MISSION_156_LOCAL_FIELD_QUALITY`
 > 当前产品状态：`830_PRODUCT_GOAL=B0_EVIDENCE_FROZEN_PENDING_CONTROLLER_REVIEW`
 > Schema Catalog：`11_PRODUCT_PACKS_SOURCE_VERIFIED_NOT_REGISTERED`
 > 执行 WIP 上限：`WIP_LIMIT=1`
@@ -10,6 +10,185 @@
 裁决和必要 authority/Handoff 指针；它不启动产品代码、Provider、运行环境、迁移或
 真实写入。B0 Evidence Pack 已冻结并等待总控复核；只有总控裁决 B0 为 PASS 后，
 下一张卡才可另行获授权进入 WIP。G1 及后续 Goal 当前均为 `LOCKED`。
+
+### Mission 136 本地例外
+
+用户已明确批准 Mission 136，仅允许在自有 `InsuranceKB-WeKnora-ingest` worktree
+内进行抽取代码、测试和维护文档的二次开发。该例外不改变 830 的生产治理：不推送
+PA-ALG 原项目、不提交远端、不调用真实 Provider、不外发原始 PDF、不启动生产服务，
+也不产生 Candidate、Release、Active 或数据库写入。Mission 136 的 OpenSpec 为
+`123-llm-first-candidate-resolution`，WIP 仅限本地软件验证。
+
+### Mission 139 九产品本地评测例外
+
+用户已明确批准 Mission 139：允许在同一自有 worktree 扩展 V5 预览运行器和前端
+合同，外发冻结的 9 款产品 27 份 PDF，最多调用 18 次百炼 `qwen-plus`，结果只写入
+`provider-run-m139-nine-products.json` 并更新本地 8091/5174 预览。M137/M138 必须
+保留；不得提交或推送 GitHub，不得写生产数据库，不得形成 Candidate、Release 或
+Active。适用 OpenSpec 为 `124-nine-product-v5-extraction-evaluation`。
+
+Mission 139 已完成本地评测：九款 27 份 PDF 共 399 页，最终 artifact 记录 9 次调用，
+8091/5174 已按 exact run 验证。自动字段有值 237/458，材料支持条件下 237/324，
+候选页条件下 237/285。结果仅为本地 `REVIEW_REQUIRED` 预览，业务发布状态仍为
+`NOT RUN`；详细记录见 `docs/insurance-kb/32-m139-nine-product-extraction.md`。
+
+### Mission 148 字段级动态补抽例外
+
+用户已明确批准 Mission 148：在自有 worktree 内实现由前端人工触发、后端执行的
+字段级动态补抽与复核。补抽只面向 `unknown`，已抽取字段由用户显式发起“复核”；
+后端按候选片段、相邻页、产品版本全材料逐层扩大上下文，提前得到可信结果即停止。
+结果必须保留 Candidate、Evidence、字段差异和执行状态，不写 Active。本轮不重跑
+三款产品、不调用真实 Provider、不写生产数据库、不提交或推送 GitHub。适用 OpenSpec
+为 `148-dynamic-field-gapfill-control`，仅允许本地软件验证，不改变 830 B0/G1 状态。
+
+### Mission 149 六险种本地预览例外
+
+用户已明确批准 Mission 149：保留 Mission 146 的医疗险、终身寿险、两全保险三款
+结果，仅补跑年金险 1830、意外险 1814、失能收入损失保险 1816，共外发 9 份冻结
+PDF，最多调用 6 次百炼 `qwen-plus`。新增结果与六险种组合预览使用独立本地
+artifact，历史结果不得覆盖；只允许更新本地 8091/5174，不写生产数据库，不形成
+Candidate、Release 或 Active，不提交或推送 GitHub。适用 OpenSpec 为
+`149-six-insurance-class-local-preview`，不改变 830 B0/G1 状态。
+
+### Mission 150 两款重疾险本地预览例外
+
+用户已明确批准 Mission 150：在 M149 六款本地结果基础上，新增重疾险 1828 和
+L2332 两款，共 6 份 PDF，最多调用 6 次百炼 `qwen-plus`。新结果写入独立 artifact，
+并生成保留 M149 原 payload 的八款合并预览；不覆盖历史结果、不写生产数据库、不创建
+Candidate/Release/Active，也不提交或推送 GitHub。适用 OpenSpec 为
+`150-serious-illness-two-product-local-preview`。
+
+### Mission 151 字段全材料语义召回例外
+
+用户已明确批准 Mission 151：在当前自有 worktree 内升级字段候选召回和动态补抽
+上下文。允许读取 `E:\wiki badcase ly` 做离线验收；不允许外发材料、调用外部模型、
+写生产数据库、形成 CandidateRelease/Release/Active，也不提交或推送 GitHub。
+适用 OpenSpec 为 `151-field-semantic-retrieval-gapfill`；本轮只允许软件和离线候选
+质量验证，不能据此宣称真实抽取率或准确率提高。
+
+### Mission 152 八产品补抽与复核例外
+
+用户已明确批准 Mission 152：以当前八款本地 Preview 为基线，允许外发其冻结材料、
+最多调用 18 次百炼 `qwen-plus`，执行 unknown 补抽和业务问题字段复核。结果写入独立
+本地 artifact 并更新 8091/5174；不得覆盖历史 artifact，不写生产数据库，不形成正式
+CandidateRelease/Release/Active，也不提交或推送 GitHub。适用 OpenSpec 为
+`152-eight-product-dynamic-gapfill-review`。
+
+执行结果：八款 unknown 补抽已写入独立 M152 artifact，Mission 调用预算 18/18；已有值
+复核审计侧车未成功落盘，故该部分记为 `BLOCKED`，不得描述为已修复。详细数据见
+`docs/insurance-kb/47-m152-eight-product-dynamic-gapfill.md`。
+
+### Mission 153 业务纠偏与单次运行提速例外
+
+用户已明确批准 Mission 153：允许在当前 worktree 内只读四份业务 XLSX，实施问题
+字段结构化、表格感知抽取、已确认结果防回退、单次运行页面/表格/候选复用、上下文
+降重与最多 2 路的确定性并发计划。不做持久化 PDF 候选缓存；不外发材料、不调用
+外部模型、不写生产数据库、不形成 CandidateRelease/Release/Active，也不提交或推送
+GitHub。适用 OpenSpec 为 `153-business-badcase-regression-table-aware-performance`。
+
+### Mission 154 四路产品级并发例外
+
+用户已明确批准 Mission 154：在当前自有 worktree 内接入最多四路产品级并发，
+每款产品内部批次继续串行；增加跨产品共享的原子调用预算、按输入产品顺序稳定
+合并、Provider 429 时从 4 路逐级降为 2/1 路，以及材料解析、计划构建、Provider、
+合并写盘的分阶段耗时记录。四路并发必须来自容量配置，不得成为产品数量硬上限。
+本 Mission 冻结 Schema、Prompt、Evidence 和 M153 回归审核规则；不调用外部模型，
+不写生产数据库，不形成 CandidateRelease/Release/Active，也不提交或推送 GitHub。
+适用 OpenSpec 为 `154-four-product-concurrency-performance`。
+
+### Mission 155 八款四路真实抽取例外
+
+用户已明确批准 Mission 155：使用 M154 最新代码重跑当前冻结八款产品，允许外发
+26 份 PDF、454 页材料，最多调用 18 次百炼 `qwen-plus`。唯一写 Owner 为当前总控
+Codex，执行模型为 `gpt-5.6-sol high`；预计一个本地运行结果和一份 audit，不创建 PR。
+结果必须写入独立 `provider-run-m155-eight-products-concurrent.json` 及配套 audit，
+不得覆盖 M150/M152；完成后允许重启 8091/5174 指向新结果。验收要求为八款均有
+终态、调用不超预算、产品内批次串行、峰值不超四路、结果顺序稳定、耗时回执完整且
+前后端 live probe 通过。明确非目标为修改 Schema/Prompt/Evidence/审核规则、写生产
+数据库、形成 CandidateRelease/Release/Active 或提交/推送 GitHub。输入 identity
+漂移、凭据不可用、调用预算不足、持续 429/Provider 错误或结果合同无效均为停止条件。
+适用 OpenSpec 为 `155-eight-product-concurrent-provider-run`。
+
+### Mission 156 七字段原子事实与完整性例外
+
+用户已明确批准 Mission 156：允许当前总控 Codex 作为唯一写 Owner，在自有
+`InsuranceKB-WeKnora-ingest` worktree 内优化保险责任、责任免除、缴费期限、
+缴费方式、保单权益、等待期、疾病定义与认定标准。范围固定为 596、5003、1830、
+1814、1816、1828 六款，沿用 M155 的 20 份 PDF、390 页冻结材料；允许外发百炼并
+最多调用 18 次 `qwen-plus`。输出必须写入独立 M156 result/audit，不覆盖 M155；完成
+后可让本地 8091/5174 指向 M156。
+
+本轮只允许字段全材料候选、原子事实抽取、结构化归并、完整性/反混淆/Evidence
+语义复核、定向补抽、测试与本地评测。六款材料支持口径不得低于 M155 同六款
+`133/143=93.01%`；端到端目标不超过 20 分钟。明确非目标为修改 Schema、持久化 PDF
+缓存、OCR/Embedding/DeepSeek 调用、生产 DB、CandidateRelease/Release/Active、
+Git commit/push/PR。材料或 Catalog identity 漂移、18 次预算不足、持续 Provider 错误、
+整体抽取率回退或结果合同无效即停止。适用 OpenSpec 为
+`156-seven-field-atomic-completeness`。
+
+2026-09-11 追加授权：首轮 18 次 qwen-plus 返回因 M156 执行器字段拓扑接线
+缺陷在合并前全部被拒绝。用户批准使用已修复代码重新外发同六款 20 份 PDF，
+最多追加 18 次 qwen-plus，结果写入独立
+`provider-run-m156-six-products-seven-field-rerun.json` 与配套 audit，成功后更新
+本地 8091/5174。其余范围、停止条件、非目标及生产隔离边界不变。
+
+### Mission 157 七字段章节化抽取与适用范围纠偏例外
+
+用户已明确批准 Mission 157：当前总控 Codex 是唯一写 Owner，执行模型为
+`gpt-5.6-sol high`。本轮复用 M156 冻结的 596、5003、1830、1814、1816、1828
+六款产品和 20 份 PDF，在当前 worktree 内修复七个重点字段的抽取不全、概括不全和
+适用范围误判。允许外发这些材料并最多调用 24 次百炼 `qwen-plus`，结果必须写入
+独立 `provider-run-m157-six-products-quality.json` 及配套 audit；成功后允许更新本地
+8091/5174，不覆盖 M156。
+
+实施范围固定为：长字段单字段/章节窗口抽取；每条原子事实逐项审核；同一段长原文可
+支撑多个原子项但每个原子项必须被语义命中；区分当前产品、主险与附加险的适用范围；
+exact/normalized 失败后只允许唯一高置信 Evidence 重定位；保留四路产品并发、产品内
+串行和稳定合并。验收要求为 20 次主调用加最多 4 次受控修复/重试、六款均有终态、
+材料支持口径不低于 M156 的 `133/143=93.01%`，既有正确字段不得回退，并记录逐字段
+before/proposed/after、审核理由、页面覆盖和耗时。
+
+明确非目标为修改 Schema、根据业务答案硬编码字段值、持久化 PDF 候选缓存、调用
+OCR/Embedding/DeepSeek、写生产数据库、形成 CandidateRelease/Release/Active，或执行
+Git commit/push/PR。冻结材料、Catalog、M156 baseline 或业务反馈 identity 漂移，24 次
+预算无法覆盖主调用，持续 Provider 错误，整体抽取率回退或结果合同无效均为停止条件。
+适用 OpenSpec 为 `157-seven-field-section-applicability-evidence`。
+
+### Mission 158 业务七字段质量闭环例外
+
+用户已明确批准 Mission 158：当前总控 Codex 是唯一写 Owner，执行模型为
+`gpt-5.6-sol high`。本轮复用 M157 冻结的 596、5003、1830、1814、1816、1828
+六款产品和 20 份 PDF，针对保险责任、责任免除、缴费期限、缴费方式、保单权益、
+等待期、疾病定义与认定标准进行业务问题闭环。允许修改当前 worktree、外发上述材料、
+最多调用 32 次百炼 `qwen-plus`，写入独立 M158 result/audit/feedback assessment，
+结果合同有效后更新本地 8091/5174。
+
+实施范围固定为：长字段章节/页窗口分片和原子项确定性合并；丢弃不承担唯一支持作用的
+未定位 Evidence 后重新执行逐原子支持校验；缴费期限/方式联合语义校验；等待期的期限、
+意外例外和后果完整性；当前产品与主附险适用范围；业务反馈 30 条逐项独立验收。业务
+答案不得进入生产 Prompt 或产品特例规则。验收要求材料支持口径不低于 M157 的
+`133/143=93.01%`，既有正确字段不回退，长字段不再依赖 32768 token 单次输出，且
+逐项报告 `RESOLVED/PARTIAL/UNRESOLVED/NOT_SCORABLE`。
+
+明确非目标为修改 Schema、持久化 PDF 候选缓存、调用 OCR/Embedding/DeepSeek、写
+生产数据库、形成 CandidateRelease/Release/Active，或执行 Git commit/push/PR。冻结
+输入 identity 漂移、连续 Provider 错误、调用预算不足、整体抽取率回退、正确字段被覆盖
+或结果合同无效均为停止条件。适用 OpenSpec 为
+`158-business-seven-field-quality-closure`。
+
+### Mission 159 前端结果契约纠偏扩展
+
+用户已于 2026-09-14 批准 M159 前端契约补丁。业务目标是让 5174 正确展示已经由
+8091 返回的 exact M159 六款结果，不重新抽取、不改结果内容。当前总控 Codex 是唯一
+写 Owner，执行模型为 `gpt-5.6-sol high`；预计 0 个 PR、30 分钟内完成，依赖现有
+M159 result `v5-trial-b45293f71e3b0cd0` 和正在运行的 8091/5174。
+
+验收固定为：前端契约接受全局最多 32 次调用以及单产品在同一全局预算内的调用回执，
+仍拒绝第 33 次调用；exact M159 数据通过解析并在 `/v5-preview` 展示六款产品。非目标为
+改 Schema、Prompt、Evidence、抽取结果、调用外部模型、写生产数据库、形成 Release/
+Active 或提交/推送 GitHub。若放宽两处上限后 exact M159 仍因其它合同不一致失败，立即
+停止并报告新的错误指纹。适用 OpenSpec 继续为
+`158-business-seven-field-quality-closure` 的 M158-R5。
 
 ```text
 B0 -> G1 -> G2 -> G3 -> G4 -> G5 -> G6A -> G6B -> G6C -> G6D -> Q0 -> G7
