@@ -31,10 +31,10 @@ D:/pa code/pythonproject/InsuranceKB-WeKnora-ingest
 | 项目 | 当前值 |
 | --- | --- |
 | 分支 | `codex/local-v5-preview` |
-| 当前 HEAD | `72c446eb` (`feat: add v5 insurance extraction preview`) |
-| 个人远端基线 | `personal/main@72c446eb` |
+| v5 功能基线 | `72c446eb` (`feat: add v5 insurance extraction preview`) |
+| 结构优化提交 | `6d1fb981` (`refactor: isolate v5 preview modules`) |
+| 个人远端 | `personal/main` 已包含结构优化提交 |
 | 原项目基线 | `origin/main@d2ce44cb` |
-| 本轮结构优化 | 工作区未提交变更 |
 
 另一个目录 `D:/pa code/pythonproject/insurance weknora wiki xg` 当前是原项目工作区，位于 `main@dfa87e11`，其中没有本轮 `v5_preview` 优化代码。该目录已有的 Go/DI 未提交修改不是本轮工作，不能与本文所列变更混为一组。
 
@@ -385,7 +385,7 @@ flowchart TB
 2. `provider_trial.py`、`m152_gapfill.py` 等文件仍较大，任务编号、产品身份和 frozen SHA 仍进入长期源码。
 3. v5 仍拥有独立 FastAPI/前端预览运行链，不能整套原样升级为第二条生产 serving 链。
 4. 原 compiler fastpath 的 LLM semantic resolution 行为是否进入生产，需要独立开关、成本/时延评测和降级验证；本轮未处理。
-5. 当前结构重构尚未 commit/push，远端 `personal/main` 仍只包含 `72c446eb` 的 v5 功能基线。
+5. 结构优化已推送到个人仓库，但尚未将通用能力迁入 canonical compiler。
 
 ## 12. 合入主线评估
 
