@@ -1,3 +1,5 @@
+"""Mission 158 evaluation runner with explicit, injectable run policy."""
+
 from __future__ import annotations
 
 import argparse
@@ -13,7 +15,7 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path, PurePosixPath
 from time import perf_counter
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 from xml.etree import ElementTree
 
 from .catalog import catalog_sha256, load_v5_catalog
@@ -74,16 +76,20 @@ from .provider_trial import (
     write_provider_trial_run,
 )
 
-M158_BASELINE_RUN_SHA256 = "b00fc0daa029e07c3f106de6387af4a144c4338d8fca2a482af3e13fb3038247"
-M158_BASELINE_FILE_SHA256 = "5f136ece85ca6626ae691f0290b625c0f86caf7e17d127b32164a23cc4934ec4"
-M158_CATALOG_SHA256 = "f7fd485fda9995872e85949fdab34d5c02713de361ca1f47e669152e19258fec"
-M158_BUSINESS_FEEDBACK_SHA256 = "3f174f18aba72821db9d5d545f6b79b05bcfafb020815cc718bdb95bfd8359b3"
-M158_EXPECTED_FEEDBACK_ISSUES = 30
-M158_ARTIFACT_LABEL = "m158"
-M158_FOCUS_FIELD_IDS: tuple[str, ...] = M156_FOCUS_FIELD_IDS
-M158_MAX_COMPACT_FIELDS = 8
+M158_BASELINE_RUN_SHA256: Final = "b00fc0daa029e07c3f106de6387af4a144c4338d8fca2a482af3e13fb3038247"
+M158_BASELINE_FILE_SHA256: Final = (
+    "5f136ece85ca6626ae691f0290b625c0f86caf7e17d127b32164a23cc4934ec4"
+)
+M158_CATALOG_SHA256: Final = "f7fd485fda9995872e85949fdab34d5c02713de361ca1f47e669152e19258fec"
+M158_BUSINESS_FEEDBACK_SHA256: Final = (
+    "3f174f18aba72821db9d5d545f6b79b05bcfafb020815cc718bdb95bfd8359b3"
+)
+M158_EXPECTED_FEEDBACK_ISSUES: Final = 30
+M158_ARTIFACT_LABEL: Final = "m158"
+M158_FOCUS_FIELD_IDS: Final[tuple[str, ...]] = M156_FOCUS_FIELD_IDS
+M158_MAX_COMPACT_FIELDS: Final = 8
 
-_FIELD_NAME_TO_ID: Mapping[str, str] = {
+_FIELD_NAME_TO_ID: Final[Mapping[str, str]] = {
     "保险责任": "coverage_responsibilities",
     "责任免除": "exclusions",
     "缴费期限": "premium_payment_term",
@@ -92,7 +98,7 @@ _FIELD_NAME_TO_ID: Mapping[str, str] = {
     "等待期": "waiting_period",
     "疾病定义与认定标准": "disease_definitions_and_criteria",
 }
-_PRODUCT_NAME_TO_ID: Mapping[str, str] = {
+_PRODUCT_NAME_TO_ID: Final[Mapping[str, str]] = {
     "e生保尊享（医疗险）": "596",
     "盛世金越（终身寿险）": "5003",
     "年金险测试产品": "1830",
@@ -104,6 +110,8 @@ _PRODUCT_NAME_TO_ID: Mapping[str, str] = {
 
 @dataclass(frozen=True, slots=True)
 class M158Batch:
+    """One bounded extraction request and the context assigned to it."""
+
     batch_index: int
     field_ids: tuple[str, ...]
     context: str

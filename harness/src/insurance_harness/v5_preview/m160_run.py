@@ -1,10 +1,12 @@
+"""Mission 160 evaluation runner built on the reusable M158 engine."""
+
 from __future__ import annotations
 
 import argparse
 import os
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from .field_profiles import BUSINESS_PRIORITY_FIELD_IDS
 from .llm_plugin import OpenAICompatibleCompletion
@@ -26,15 +28,19 @@ from .provider_trial import (
     load_provider_trial_run,
 )
 
-M160_BASELINE_RUN_SHA256 = "d7c5819ac8feda7c5d6d8a4e31595c99be7081da19416d5dd0f3064f420e7b4a"
-M160_BASELINE_FILE_SHA256 = "4d40afd1be7615daf185512dc52b641df1b5df07814bec8c67401938d929fa70"
-M160_CATALOG_SHA256 = "f7fd485fda9995872e85949fdab34d5c02713de361ca1f47e669152e19258fec"
-M160_BUSINESS_FEEDBACK_SHA256 = "3f174f18aba72821db9d5d545f6b79b05bcfafb020815cc718bdb95bfd8359b3"
-M160_FOCUS_FIELD_IDS = tuple(
+M160_BASELINE_RUN_SHA256: Final = "d7c5819ac8feda7c5d6d8a4e31595c99be7081da19416d5dd0f3064f420e7b4a"
+M160_BASELINE_FILE_SHA256: Final = (
+    "4d40afd1be7615daf185512dc52b641df1b5df07814bec8c67401938d929fa70"
+)
+M160_CATALOG_SHA256: Final = "f7fd485fda9995872e85949fdab34d5c02713de361ca1f47e669152e19258fec"
+M160_BUSINESS_FEEDBACK_SHA256: Final = (
+    "3f174f18aba72821db9d5d545f6b79b05bcfafb020815cc718bdb95bfd8359b3"
+)
+M160_FOCUS_FIELD_IDS: Final[tuple[str, ...]] = tuple(
     dict.fromkeys((*M156_FOCUS_FIELD_IDS, *BUSINESS_PRIORITY_FIELD_IDS))
 )
-M160_MAX_COMPACT_FIELDS = 12
-M160_COMPACT_FIELD_IDS = tuple(
+M160_MAX_COMPACT_FIELDS: Final = 12
+M160_COMPACT_FIELD_IDS: Final[tuple[str, ...]] = tuple(
     field_id for field_id in M160_FOCUS_FIELD_IDS if field_id not in M158_LONG_FIELD_IDS
 )
 
@@ -52,11 +58,10 @@ def _load_m160_material(
 ) -> M156Material:
     """Preserve the M159 page-count receipt when the historical supplemental PDF is absent."""
 
-    supplemental_root = supplemental_root_596
     missing = tuple(
         item
         for item in product.files
-        if not (supplemental_root / item.file_name).is_file()
+        if not (supplemental_root_596 / item.file_name).is_file()
         and item.file_name not in {pdf.file_name for pdf in APPROVED_PRODUCTS[0].pdfs}
     )
     if not missing:
