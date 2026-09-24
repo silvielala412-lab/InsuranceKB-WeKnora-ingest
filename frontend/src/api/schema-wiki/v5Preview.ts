@@ -11,6 +11,10 @@ import {
   type V5DynamicFieldGapfillRequest,
   type V5DynamicFieldGapfillResponse,
 } from './v5/v5DynamicGapfillContract.ts'
+import {
+  parseV5SearchResult,
+  type V5SearchResult,
+} from './v5/v5SearchContract.ts'
 
 export interface V5CatalogSchemaIndex {
   readonly ordinal: number
@@ -45,6 +49,7 @@ export interface V5PreviewClient {
   runDynamicFieldGapfill(
     request: V5DynamicFieldGapfillRequest,
   ): Promise<V5DynamicFieldGapfillResponse>
+  search?(query: string, limit?: number): Promise<V5SearchResult>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -147,6 +152,14 @@ export function createV5PreviewClient(fetcher: typeof fetch = fetch): V5PreviewC
         body: JSON.stringify(request),
       })
       return parseV5DynamicFieldGapfillResponse(await responseJson(response))
+    },
+    async search(query: string, limit = 20): Promise<V5SearchResult> {
+      const response = await fetcher('/v5-preview-api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, limit }),
+      })
+      return parseV5SearchResult(await responseJson(response))
     },
   })
 }

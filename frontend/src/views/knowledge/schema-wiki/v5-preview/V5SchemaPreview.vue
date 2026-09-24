@@ -25,6 +25,7 @@ import {
   type V5Concept,
   type V5ConceptInstance,
 } from './v5Concepts.ts'
+import type { V5SearchMatch, V5SearchResult } from '../../../../api/schema-wiki/v5/v5SearchContract.ts'
 
 const props = withDefaults(defineProps<{ client?: V5PreviewClient }>(), {
   client: () => createV5PreviewClient(),
@@ -42,6 +43,10 @@ const selectedProductVersionId = ref('')
 const selectedFieldId = ref('')
 const conceptQuery = ref('')
 const selectedConceptId = ref('product_short_name')
+const searchQuery = ref('')
+const searchLoading = ref(false)
+const searchError = ref('')
+const searchResult = ref<V5SearchResult | null>(null)
 
 const form = reactive({
   mode: 'fixture' as 'fixture' | 'llm',
@@ -167,6 +172,36 @@ function openConceptInstance(instance: V5ConceptInstance): void {
   if (!preview) return
   selectProduct(preview)
   selectedFieldId.value = instance.field_id
+}
+
+function openSearchMatch(match: V5SearchMatch): void {
+  const preview = previews.value.find(item => item.product_version_id === match.product_version_id)
+  if (!preview) return
+  selectProduct(preview)
+  selectedFieldId.value = match.field_id
+}
+
+async function submitSearch(): Promise<void> {
+  const query = searchQuery.value.trim()
+  if (!query) {
+    searchError.value = '请输入要搜索的产品、字段或规则'
+    searchResult.value = null
+    return
+  }
+  if (!props.client.search) {
+    searchError.value = 'V5_SEARCH_NOT_CONFIGURED'
+    return
+  }
+  searchLoading.value = true
+  searchError.value = ''
+  try {
+    searchResult.value = await props.client.search(query, 20)
+  } catch (error) {
+    searchResult.value = null
+    searchError.value = error instanceof Error ? error.message : 'V5_SEARCH_FAILED'
+  } finally {
+    searchLoading.value = false
+  }
 }
 
 function clearPreviews(): void {
@@ -393,6 +428,74 @@ onMounted(loadCatalog)
     </section>
 
     <p v-if="errorMessage" class="v5-preview__error" role="alert">{{ errorMessage }}</p>
+
+    <section v-if="previews.length" class="v5-preview__search" data-testid="v5-search">
+      <header class="v5-preview__search-header">
+        <div>
+          <h3>产品知识搜索</h3>
+          <p>搜索当前已加载产品的字段值和 Evidence；Key 只在后端使用。</p>
+        </div>
+        <span v-if="searchResult" class="v5-preview__search-provider" :data-provider="searchResult.provider">
+          {{ searchResult.provider === 'bailian' ? `百炼 · ${searchResult.model ?? ''}` : '本地字段检索' }}
+        </span>
+      </header>
+
+      <form class="v5-preview__search-form" data-testid="v5-search-form" @submit.prevent="submitSearch">
+        <input
+          v-model.trim="searchQuery"
+          type="search"
+          placeholder="例如：等待期、e生保、宽限期、保什么"
+          aria-label="搜索产品知识"
+        />
+        <button type="submit" :disabled="searchLoading">
+          <t-icon name="search" />
+          {{ searchLoading ? '搜索中' : '搜索' }}
+        </button>
+      </form>
+      <p v-if="searchError" class="v5-preview__search-error" role="alert">{{ searchError }}</p>
+
+      <article v-if="searchResult" class="v5-preview__search-result">
+        <p class="v5-preview__search-answer">{{ searchResult.answer }}</p>
+        <p v-if="searchResult.provider_error" class="v5-preview__search-fallback">
+          百炼暂不可用，已展示本地匹配结果。
+        </p>
+        <div v-if="searchResult.matches.length" class="v5-preview__search-table-wrap">
+          <table class="v5-preview__search-table">
+            <thead>
+              <tr>
+                <th scope="col">产品</th>
+                <th scope="col">字段</th>
+                <th scope="col">字段值</th>
+                <th scope="col">Evidence</th>
+                <th scope="col">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="match in searchResult.matches" :key="`${match.product_version_id}:${match.field_id}`">
+                <td>
+                  <strong>{{ match.product_display_name }}</strong>
+                  <small>{{ match.insurance_class }} · {{ match.product_id }}</small>
+                </td>
+                <td>
+                  <strong>{{ match.field_display_name }}</strong>
+                  <small>{{ match.field_id }}</small>
+                </td>
+                <td class="v5-preview__search-value">{{ formatValue(match.value) }}</td>
+                <td>
+                  <span>{{ match.evidence.length }} 条</span>
+                  <small v-if="match.evidence[0]">{{ match.evidence[0].quote }}</small>
+                </td>
+                <td>
+                  <button type="button" class="v5-preview__search-open" @click="openSearchMatch(match)">
+                    查看字段
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
 
     <section v-if="concepts.length" class="v5-preview__concepts" data-testid="v5-concept-index">
       <header class="v5-preview__concepts-header">
@@ -741,6 +844,28 @@ onMounted(loadCatalog)
 .v5-preview__schema-grid button { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; padding: 10px 12px; border: 0; border-right: 1px solid var(--td-component-border); border-bottom: 1px solid var(--td-component-border); background: transparent; color: var(--td-text-color-primary); text-align: left; cursor: pointer; }
 .v5-preview__schema-grid button.active { background: var(--td-brand-color-light); color: var(--td-brand-color); }
 .v5-preview__schema-grid strong { color: var(--td-text-color-placeholder); font-size: 18px; }
+.v5-preview__search { display: grid; gap: 10px; padding: 14px 20px 16px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-secondarycontainer); }
+.v5-preview__search-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.v5-preview__search-header h3 { margin: 0; font-size: 16px; }
+.v5-preview__search-header p { margin: 4px 0 0; color: var(--td-text-color-secondary); font-size: 12px; }
+.v5-preview__search-provider { flex: none; padding: 4px 8px; border-radius: 4px; background: var(--td-bg-color-container); color: var(--td-text-color-secondary); font-size: 11px; }
+.v5-preview__search-provider[data-provider='bailian'] { background: var(--td-success-color-1); color: var(--td-success-color-7); }
+.v5-preview__search-form { display: flex; gap: 8px; }
+.v5-preview__search-form input { box-sizing: border-box; flex: 1; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--td-component-border); border-radius: 5px; background: var(--td-bg-color-container); color: var(--td-text-color-primary); font: inherit; }
+.v5-preview__search-form button { display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 14px; border: 1px solid var(--td-brand-color); border-radius: 5px; background: var(--td-brand-color); color: #fff; cursor: pointer; }
+.v5-preview__search-form button:disabled { cursor: not-allowed; opacity: .55; }
+.v5-preview__search-error { margin: 0; color: var(--td-error-color-7); font-size: 12px; }
+.v5-preview__search-result { display: grid; gap: 8px; min-width: 0; }
+.v5-preview__search-answer { margin: 0; padding: 9px 11px; border-left: 3px solid var(--td-brand-color); background: var(--td-bg-color-container); color: var(--td-text-color-primary); line-height: 1.55; }
+.v5-preview__search-fallback { margin: 0; color: var(--td-warning-color-8); font-size: 11px; }
+.v5-preview__search-table-wrap { max-height: 260px; overflow: auto; }
+.v5-preview__search-table { width: 100%; min-width: 760px; border-collapse: collapse; background: var(--td-bg-color-container); font-size: 12px; }
+.v5-preview__search-table th, .v5-preview__search-table td { padding: 8px 9px; border: 1px solid var(--td-component-border); text-align: left; vertical-align: top; }
+.v5-preview__search-table th { background: var(--td-bg-color-secondarycontainer-hover); color: var(--td-text-color-secondary); font-weight: 600; }
+.v5-preview__search-table td > strong, .v5-preview__search-table td > small { display: block; }
+.v5-preview__search-table td > small { margin-top: 2px; color: var(--td-text-color-placeholder); font-family: ui-monospace, monospace; font-size: 10px; overflow-wrap: anywhere; }
+.v5-preview__search-value { max-width: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.v5-preview__search-open { padding: 4px 8px; border: 1px solid var(--td-brand-color); border-radius: 4px; background: transparent; color: var(--td-brand-color); cursor: pointer; font-size: 11px; }
 .v5-preview__concepts { display: grid; gap: 12px; padding: 14px 20px 16px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-container); }
 .v5-preview__concepts-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
 .v5-preview__concepts-header h3 { margin: 0; font-size: 16px; }
@@ -781,6 +906,9 @@ onMounted(loadCatalog)
   .v5-preview__form { grid-template-columns: 1fr 1fr; max-height: 250px; overflow: auto; }
   .v5-preview__browser { grid-template-columns: 1fr; }
   .v5-preview__navigation { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--td-component-border); }
+  .v5-preview__search-header { align-items: stretch; flex-direction: column; }
+  .v5-preview__search-form { flex-direction: column; }
+  .v5-preview__search-form button { justify-content: center; }
   .v5-preview__concepts-header { align-items: stretch; flex-direction: column; }
   .v5-preview__concepts-header label { width: 100%; }
   .v5-preview__concept-browser { grid-template-columns: 1fr; }

@@ -52,6 +52,19 @@ $env:V5_PREVIEW_RUN_ARTIFACT = $artifactPath
 uv run uvicorn insurance_harness.v5_preview.api:app_factory --factory --host 127.0.0.1 --port 8091
 ```
 
+前端页面的“产品知识搜索”默认直接检索已加载的 `provider-run` 字段和 Evidence，
+不需要模型 Key。如果需要让百炼对命中结果做答案概括，在启动 8091 的同一窗口
+额外设置以下变量；Key 只传给后端，浏览器不会读取：
+
+```powershell
+$env:V5_SEARCH_LLM_ENABLED = "1"
+$env:V5_PREVIEW_LLM_FAMILY = "qwen"
+# 使用已有的 HARNESS_LLM_API_KEY，或设置 DASHSCOPE_API_KEY
+```
+
+重启 8091 后，健康检查中的 `search_llm_configured` 为 `true` 即表示已启用；
+未配置或百炼调用失败时，搜索会自动保留本地字段匹配结果。
+
 如果暂时不展示结果文件，可以不设置 `V5_PREVIEW_RUN_ARTIFACT`；此时健康检查仍可用，但 `/v5-preview-api/provider-run` 会返回未配置结果的提示。切换结果文件后必须重启后端。
 
 需要让局域网其他设备访问时，可将 `--host 127.0.0.1` 改为 `--host 0.0.0.0`，并自行配置防火墙和访问控制。只在本机测试时建议保留 `127.0.0.1`。

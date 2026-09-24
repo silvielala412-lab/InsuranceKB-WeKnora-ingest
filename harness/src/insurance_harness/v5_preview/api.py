@@ -22,6 +22,7 @@ from .dynamic_gapfill import (
 from .ingest import IngestPluginRegistry, PreviewCompilationError, V5PreviewCompiler
 from .llm_plugin import LlmPluginError, OpenAICompatibleCompletion, SchemaGuidedLlmPlugin
 from .provider_trial import V5ProviderTrialRun, load_provider_trial_run
+from .search import V5SearchRequest, V5SearchResponse, search_provider_run
 
 
 class FixturePreviewPlugin:
@@ -95,11 +96,37 @@ def _llm_plugin_from_environment() -> SchemaGuidedLlmPlugin:
     return SchemaGuidedLlmPlugin(completion=completion)
 
 
+def _search_completion_from_environment() -> OpenAICompatibleCompletion | None:
+    if os.environ.get("V5_SEARCH_LLM_ENABLED", "").strip() != "1":
+        return None
+    api_key = (
+        os.environ.get("HARNESS_LLM_API_KEY", "").strip()
+        or os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    )
+    if not api_key:
+        return None
+    return OpenAICompatibleCompletion(
+        base_url=(
+            os.environ.get(
+                "HARNESS_LLM_BASE_URL",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            ).strip()
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        ),
+        api_key=api_key,
+        model=(os.environ.get("HARNESS_LLM_MODEL_WEAK", "qwen-plus").strip() or "qwen-plus"),
+        model_family=(os.environ.get("V5_PREVIEW_LLM_FAMILY", "qwen").strip() or "qwen"),  # type: ignore[arg-type]
+        timeout_seconds=float(os.environ.get("V5_SEARCH_LLM_TIMEOUT_SECONDS", "60")),
+        max_calls=50,
+    )
+
+
 def create_app(
     *,
     enable_llm: bool | None = None,
     provider_run_path: str | Path | None = None,
     dynamic_gapfill_service: DynamicFieldGapfillService | None = None,
+    search_completion: OpenAICompatibleCompletion | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Insurance v5 Candidate Preview", version="1.0.0")
     catalog = load_v5_catalog()
@@ -127,6 +154,11 @@ def create_app(
         if configured_run_path is not None
         else None
     )
+    configured_search_completion = (
+        search_completion
+        if search_completion is not None
+        else _search_completion_from_environment()
+    )
 
     @app.get("/v5-preview-api/health")
     def health() -> dict[str, object]:
@@ -137,6 +169,8 @@ def create_app(
             "llm_configured": llm_compiler is not None,
             "provider_run_configured": provider_run is not None,
             "dynamic_gapfill_configured": dynamic_gapfill_service is not None,
+            "search_configured": provider_run is not None,
+            "search_llm_configured": configured_search_completion is not None,
             "serving_effect": "NONE",
         }
 
@@ -152,6 +186,16 @@ def create_app(
         if provider_run is None:
             raise HTTPException(status_code=404, detail="V5_PROVIDER_RUN_NOT_CONFIGURED")
         return provider_run
+
+    @app.post("/v5-preview-api/search", response_model=V5SearchResponse)
+    def search(request: V5SearchRequest) -> V5SearchResponse:
+        if provider_run is None:
+            raise HTTPException(status_code=503, detail="V5_SEARCH_DATA_NOT_CONFIGURED")
+        return search_provider_run(
+            provider_run,
+            request,
+            completion=configured_search_completion,
+        )
 
     def compile_or_422(compiler: V5PreviewCompiler, request: IngestRequest) -> V5CandidatePreview:
         try:

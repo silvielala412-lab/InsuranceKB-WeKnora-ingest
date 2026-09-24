@@ -7,6 +7,7 @@ import type { V5PreviewClient } from '../../../../api/schema-wiki/v5Preview.ts'
 import V5SchemaPreview from './V5SchemaPreview.vue'
 import { parseV5CandidatePreview } from '../../../../api/schema-wiki/v5/v5PreviewContract.ts'
 import { parseV5ProviderTrialRun } from '../../../../api/schema-wiki/v5/v5ProviderTrialContract.ts'
+import { parseV5SearchResult } from '../../../../api/schema-wiki/v5/v5SearchContract.ts'
 import { providerRunFixture } from './v5ProviderTrialFixture.ts'
 
 const H = (character: string) => character.repeat(64)
@@ -70,6 +71,32 @@ describe('V5SchemaPreview dynamic product rendering', () => {
       async runDynamicFieldGapfill() {
         throw new Error('not used')
       },
+      async search() {
+        return parseV5SearchResult({
+          contract: 'insurance-v5-search-response.v1',
+          query: '险种名称',
+          provider: 'local',
+          model: null,
+          answer: '检索到 1 条相关字段。',
+          matches: [{
+            product_id: 'medical-a',
+            product_version_id: 'medical-a@v1',
+            product_display_name: '安心医疗险',
+            insurance_class: '医疗险',
+            field_id: 'product_name',
+            field_display_name: '险种名称',
+            category_display_name: '产品主数据',
+            value: '安心医疗险',
+            score: 8,
+            evidence: [{
+              locator: 'page:1',
+              quote: '产品名称：安心医疗险',
+              verification_status: 'VERIFIED',
+            }],
+          }],
+          provider_error: null,
+        })
+      },
     }
 
     const wrapper = mount(V5SchemaPreview, { props: { client } })
@@ -84,6 +111,13 @@ describe('V5SchemaPreview dynamic product rendering', () => {
     expect(wrapper.text()).toContain('已抽取')
     expect(wrapper.text()).toContain('事实 Fact')
     expect(wrapper.text()).toContain('产品名称：安心医疗险')
+
+    await wrapper.get('[aria-label="搜索产品知识"]').setValue('险种名称')
+    await wrapper.get('[data-testid="v5-search-form"]').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('产品知识搜索')
+    expect(wrapper.text()).toContain('检索到 1 条相关字段。')
+    expect(wrapper.text()).toContain('本地字段检索')
   })
 
   it('preloads completed real provider results without presenting Active authority', async () => {
