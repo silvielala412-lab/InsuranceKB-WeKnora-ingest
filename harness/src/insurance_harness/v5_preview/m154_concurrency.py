@@ -29,6 +29,13 @@ class ProductConcurrencyProfile(_ClosedModel):
     max_products: Annotated[int, Field(ge=1, le=4)] = 4
 
 
+class BatchConcurrencyProfile(_ClosedModel):
+    contract: Literal["insurance-v5-batch-concurrency.v1"] = (
+        "insurance-v5-batch-concurrency.v1"
+    )
+    max_batches: Annotated[int, Field(ge=1, le=8)] = 1
+
+
 class CallReservation(_ClosedModel):
     provider_call: Annotated[int, Field(ge=1)]
     product_version_id: Annotated[str, Field(min_length=1)]
@@ -41,7 +48,7 @@ class ProviderThrottleEvent(_ClosedModel):
     provider_call: Annotated[int, Field(ge=1)]
     product_version_id: Annotated[str, Field(min_length=1)]
     batch_index: Annotated[int, Field(ge=1)]
-    from_limit: Annotated[int, Field(ge=2, le=4)]
+    from_limit: Annotated[int, Field(ge=2, le=8)]
     to_limit: Annotated[int, Field(ge=1, le=2)]
     reason: Literal["HTTP_429"] = "HTTP_429"
 
@@ -65,6 +72,8 @@ class ProviderAttemptTiming(_ClosedModel):
     gate_wait_ms: Annotated[float, Field(ge=0)]
     duration_ms: Annotated[float, Field(ge=0)]
     outcome: Literal["ACCEPTED", "ERROR"]
+    started_at: str = ""
+    finished_at: str = ""
 
 
 class M154RunTimingReceipt(_ClosedModel):
@@ -76,7 +85,7 @@ class M154RunTimingReceipt(_ClosedModel):
     total_ms: Annotated[float, Field(ge=0)]
     stages: Annotated[tuple[StageTimingReceipt, ...], Field(min_length=4, max_length=4)]
     peak_product_workers: Annotated[int, Field(ge=0, le=4)]
-    peak_provider_calls: Annotated[int, Field(ge=0, le=4)]
+    peak_provider_calls: Annotated[int, Field(ge=0, le=8)]
     product_timings: tuple[ProductTimingReceipt, ...]
     provider_attempts: tuple[ProviderAttemptTiming, ...]
     throttle_events: tuple[ProviderThrottleEvent, ...]
@@ -160,8 +169,11 @@ class GateAdmission:
 class AdaptiveProviderGate:
     """Limits simultaneous calls and lowers the limit after exact HTTP 429 responses."""
 
-    def __init__(self, profile: ProductConcurrencyProfile) -> None:
-        self._limit = profile.max_products
+    def __init__(self, profile: ProductConcurrencyProfile | BatchConcurrencyProfile) -> None:
+        self._limit = (
+            profile.max_batches if isinstance(profile, BatchConcurrencyProfile)
+            else profile.max_products
+        )
         self._active = 0
         self._peak_active = 0
         self._condition = Condition()
@@ -241,6 +253,7 @@ def invoke_provider_attempt[R](
     )
     if reservation is None:
         raise RetryBudgetUnavailable("M154_RETRY_BUDGET_UNAVAILABLE")
+    started_at = _utc_now()
     started = perf_counter()
     value: R | None = None
     error: Exception | None = None
@@ -259,6 +272,8 @@ def invoke_provider_attempt[R](
         gate_wait_ms=admission.wait_ms,
         duration_ms=_milliseconds(perf_counter() - started),
         outcome="ERROR" if error is not None else "ACCEPTED",
+        started_at=started_at,
+        finished_at=_utc_now(),
     )
     return ProviderAttemptOutcome(
         reservation=reservation,
@@ -400,6 +415,7 @@ def _utc_now() -> str:
 
 __all__ = [
     "AdaptiveProviderGate",
+    "BatchConcurrencyProfile",
     "CallBudgetExhausted",
     "CallReservation",
     "GlobalCallBudget",

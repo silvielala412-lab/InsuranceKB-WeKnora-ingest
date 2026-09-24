@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Sequence
 from typing import Annotated
@@ -21,11 +22,23 @@ class SourcePage(BaseModel):
 
 
 def _normalized_evidence_text(value: str) -> str:
+    # Normalize only line-leading list glyphs, never interior symbols, numbers
+    # or punctuation. Preserve the original quotation in CandidateEvidence.
+    value = re.sub(r"(?m)^[ \t]*[\uf06c•●▪][ \t]*", "", value)
     return "".join(
         character
         for character in unicodedata.normalize("NFKC", value)
         if not character.isspace()
     )
+
+
+def strip_defined_footnote_references(value: str, source_text: str) -> str:
+    """Strip only references whose exact number and term are defined in the source."""
+    for number, term in re.findall(
+        r"(?m)^\s*(\d{1,2})\s+([\u4e00-\u9fff]{2,20}?)(?:是指|指)", source_text
+    ):
+        value = re.sub(re.escape(term) + r"\s*" + number + r"(?!\d)", term, value)
+    return value
 
 
 def _page_locator(page: SourcePage) -> str:

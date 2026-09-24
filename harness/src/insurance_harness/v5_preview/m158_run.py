@@ -9,8 +9,8 @@ import re
 import zipfile
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import ProcessPoolExecutor
-from dataclasses import asdict, dataclass
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path, PurePosixPath
@@ -20,10 +20,17 @@ from xml.etree import ElementTree
 
 from .catalog import catalog_sha256, load_v5_catalog
 from .contracts import CandidateValue, PluginFieldResult, TriState, V5CandidatePreview
+from .extraction_completion import (
+    audit_extraction_completion,
+    confirmed_material_fields,
+    require_complete_execution,
+    write_checked_trial,
+)
 from .llm_plugin import OpenAICompatibleCompletion
 from .m152_gapfill import _replace_preview_fields
 from .m154_concurrency import (
     AdaptiveProviderGate,
+    BatchConcurrencyProfile,
     GlobalCallBudget,
     ProductConcurrencyProfile,
     ProductWork,
@@ -73,8 +80,8 @@ from .provider_trial import (
     V5ProviderTrialRun,
     load_provider_trial_run,
     seal_provider_trial_run,
-    write_provider_trial_run,
 )
+from .trial_contracts import MAX_MICROBATCH_PRODUCT_ATTEMPTS
 
 M158_BASELINE_RUN_SHA256: Final = "b00fc0daa029e07c3f106de6387af4a144c4338d8fca2a482af3e13fb3038247"
 M158_BASELINE_FILE_SHA256: Final = (
@@ -158,6 +165,8 @@ class ReplacementSelector(Protocol):
         proposed_evidence_quotes: Sequence[str],
         candidate_text: str,
         product_display_name: str,
+        baseline_evidence_locators: Sequence[str] = (),
+        proposed_evidence_locators: Sequence[str] = (),
     ) -> M156ReplacementDecision: ...
 
 
@@ -176,6 +185,9 @@ class M158RunPolicy:
     repair_hint_builder: RepairHintBuilder
     evidence_admitter: EvidenceAdmitter
     replacement_selector: ReplacementSelector
+    source_fields_only: bool = False
+    field_context_builder: Callable[..., Any] = build_m157_field_context
+    evidence_classifier: Callable[..., Any] = classify_m157_evidence
 
     @classmethod
     def default(cls) -> M158RunPolicy:
@@ -206,8 +218,17 @@ def _plan_product_batches(
 ) -> tuple[M158Batch, ...]:
     catalog = load_v5_catalog()
     schema = catalog.schema_for(product.insurance_class)
+    requested = set(policy.focus_field_ids)
+    # Keyword candidates rank context, but their absence cannot prove that a
+    # source-backed fact is absent. Scan every requested extraction field.
     applicable = tuple(
-        field.field_id for field in schema.fields if field.field_id in policy.focus_field_ids
+        field.field_id
+        for field in schema.fields
+        if field.field_id in requested
+        and (
+            not policy.source_fields_only
+            or "原文抽取" in field.formation_modes
+        )
     )
     plans: list[M158Batch] = []
     index = 0
@@ -250,7 +271,7 @@ def _plan_product_batches(
         compact_batch_ids = compact_ids[start : start + policy.max_compact_fields]
         if not compact_batch_ids:
             continue
-        context = build_m157_field_context(
+        context = policy.field_context_builder(
             material.pages,
             schema,
             compact_batch_ids,
@@ -335,6 +356,8 @@ def _field_record(
         proposed_evidence_quotes=tuple(item.quote for item in result.evidence),
         candidate_text=candidate_text,
         product_display_name=preview.product_display_name,
+        baseline_evidence_locators=tuple(item.locator for item in original.evidence),
+        proposed_evidence_locators=tuple(item.locator for item in result.evidence),
     )
     action = replacement.action
     after = result if action == "replace" else original
@@ -457,6 +480,95 @@ def load_feedback_issues(path: Path) -> tuple[FeedbackIssue, ...]:
     return tuple(issues)
 
 
+@dataclass(frozen=True, slots=True)
+class M158BatchExecution:
+    batch: M158Batch
+    results: tuple[PluginFieldResult, ...] | None
+    calls: tuple[M156CallRecord, ...]
+    timings: tuple[ProviderAttemptTiming, ...]
+
+
+def _execute_planned_batches(
+    *,
+    product: ProviderTrialProduct,
+    material: M156Material,
+    batches: Sequence[M158Batch],
+    completion_factory: Callable[[], OpenAICompatibleCompletion],
+    budget: GlobalCallBudget,
+    gate: AdaptiveProviderGate,
+    policy: M158RunPolicy,
+    profile: BatchConcurrencyProfile,
+) -> tuple[M158BatchExecution, ...]:
+    """Run isolated batch clients; return results in plan order for serial merge."""
+    if product.preview is None:
+        raise ProviderTrialError("M158_BASELINE_PREVIEW_MISSING")
+    frozen_preview = product.preview
+
+    def execute(batch: M158Batch) -> M158BatchExecution:
+        completion = completion_factory()
+        calls: list[M156CallRecord] = []
+        timings: list[ProviderAttemptTiming] = []
+        results: tuple[PluginFieldResult, ...] | None = None
+        try:
+            for attempt in (1, 2):
+                before_receipts = len(completion.receipts)
+                try:
+                    outcome = invoke_provider_attempt(
+                        budget=budget,
+                        gate=gate,
+                        product_version_id=product.product_version_id,
+                        batch_index=batch.batch_index,
+                        attempt=attempt,
+                        retry=attempt > 1,
+                        call=partial(
+                            _execute_batch,
+                            product=product,
+                            preview=frozen_preview,
+                            material=material,
+                            field_ids=batch.field_ids,
+                            context=batch.context,
+                            completion=completion,
+                            evidence_classifier=policy.evidence_classifier,
+                            repair_hint=policy.repair_hint_builder(batch),
+                        ),
+                    )
+                except RetryBudgetUnavailable:
+                    break
+                timings.append(outcome.timing)
+                receipt = (
+                    completion.receipts[-1] if len(completion.receipts) > before_receipts else None
+                )
+                error_code = _typed_error_code(outcome.error) if outcome.error else None
+                calls.append(M156CallRecord(
+                    provider_call=outcome.reservation.provider_call,
+                    product_version_id=product.product_version_id,
+                    batch_index=batch.batch_index,
+                    attempt=attempt,
+                    kind="provider_retry" if attempt > 1 else batch.kind,
+                    target_field_ids=batch.field_ids,
+                    context_sha256=_sha256_text(batch.context),
+                    outcome="ERROR" if outcome.error else "ACCEPTED",
+                    error_code=error_code,
+                    completion=receipt,
+                ))
+                print(json.dumps({
+                    "event": "M158_PROVIDER_CALL",
+                    **outcome.timing.model_dump(mode="json"),
+                    "kind": batch.kind,
+                    "retry": attempt > 1,
+                    "error_code": error_code,
+                }, ensure_ascii=False), flush=True)
+                if outcome.error is None:
+                    results = outcome.value
+                    break
+        finally:
+            completion.close()
+        return M158BatchExecution(batch, results, tuple(calls), tuple(timings))
+
+    with ThreadPoolExecutor(max_workers=profile.max_batches) as pool:
+        return tuple(pool.map(execute, batches))
+
+
 def run_m158(
     *,
     baseline_path: Path,
@@ -471,8 +583,17 @@ def run_m158(
     concurrency_profile: ProductConcurrencyProfile,
     product_ids: Sequence[str] = M156_PRODUCT_IDS,
     policy: M158RunPolicy | None = None,
+    batch_concurrency_profile: BatchConcurrencyProfile | None = None,
 ) -> tuple[V5ProviderTrialRun, Mapping[str, Any], Mapping[str, Any]]:
     effective_policy = policy or M158RunPolicy.default()
+    batch_profile = batch_concurrency_profile or BatchConcurrencyProfile()
+    if batch_profile.max_batches > 1 and len(tuple(product_ids)) != 1:
+        raise ProviderTrialError("M158_BATCH_CONCURRENCY_REQUIRES_ONE_PRODUCT")
+    # A parallel single-product rerun must still fit the persisted attempt contract.
+    max_calls = (
+        min(M158_MAX_CALLS, MAX_MICROBATCH_PRODUCT_ATTEMPTS)
+        if batch_profile.max_batches > 1 else M158_MAX_CALLS
+    )
     outputs = (output_path, audit_output_path, assessment_output_path)
     if any(path.resolve() == baseline_path.resolve() for path in outputs):
         raise ProviderTrialError("M158_BASELINE_OVERWRITE_FORBIDDEN")
@@ -541,7 +662,7 @@ def run_m158(
             for product in products
         }
         primary_count = sum(len(items) for items in plans.values())
-        if primary_count > M158_MAX_CALLS:
+        if primary_count > max_calls:
             raise ProviderTrialError("M158_PRIMARY_CALL_BUDGET_EXCEEDED")
         if any(len(items) > 12 for items in plans.values()):
             raise ProviderTrialError("M158_PRODUCT_ATTEMPT_LIMIT_EXCEEDED")
@@ -550,7 +671,8 @@ def run_m158(
             {
                 "event": "M158_PLAN_FROZEN",
                 "primary_calls": primary_count,
-                "max_calls": M158_MAX_CALLS,
+                "max_calls": max_calls,
+                "batch_concurrency_profile": batch_profile.model_dump(mode="json"),
                 "products": {
                     version: [
                         {
@@ -569,8 +691,11 @@ def run_m158(
         flush=True,
     )
 
-    budget = GlobalCallBudget(total_calls=M158_MAX_CALLS, required_primary_calls=primary_count)
-    gate = AdaptiveProviderGate(concurrency_profile)
+    budget = GlobalCallBudget(total_calls=max_calls, required_primary_calls=primary_count)
+    gate = AdaptiveProviderGate(
+        batch_profile if batch_profile.max_batches > 1 else concurrency_profile
+    )
+    completion_checks = {}
 
     def execute_product(work: ProductWork[ProviderTrialProduct]) -> M156ProductExecution:
         product = work.payload
@@ -578,7 +703,6 @@ def run_m158(
             raise ProviderTrialError("M158_BASELINE_PREVIEW_MISSING")
         material = materials[product.product_version_id]
         preview = product.preview
-        completion = completion_factory()
         calls: list[M156CallRecord] = []
         timings: list[ProviderAttemptTiming] = []
         records: list[M156FieldRecord] = []
@@ -586,157 +710,139 @@ def run_m158(
         long_contexts: dict[str, list[str]] = {}
         long_coverages: dict[str, list[Mapping[str, Any]]] = {}
         long_calls: dict[str, list[int]] = {}
-
-        def invoke(batch: M158Batch, *, retry: bool) -> tuple[PluginFieldResult, ...] | None:
-            before_receipts = len(completion.receipts)
-            outcome = invoke_provider_attempt(
-                budget=budget,
-                gate=gate,
-                product_version_id=product.product_version_id,
-                batch_index=batch.batch_index,
-                attempt=2 if retry else 1,
-                retry=retry,
-                call=partial(
-                    _execute_batch,
-                    product=product,
-                    preview=preview,
-                    material=material,
-                    field_ids=batch.field_ids,
-                    context=batch.context,
-                    completion=completion,
-                    evidence_classifier=classify_m157_evidence,
-                    repair_hint=effective_policy.repair_hint_builder(batch),
-                ),
-            )
-            timings.append(outcome.timing)
-            receipt = (
-                completion.receipts[-1] if len(completion.receipts) > before_receipts else None
-            )
-            error_code = _typed_error_code(outcome.error) if outcome.error else None
-            calls.append(
-                M156CallRecord(
-                    provider_call=outcome.reservation.provider_call,
-                    product_version_id=product.product_version_id,
-                    batch_index=batch.batch_index,
-                    attempt=outcome.reservation.attempt,
-                    kind="provider_retry" if retry else batch.kind,
-                    target_field_ids=batch.field_ids,
-                    context_sha256=_sha256_text(batch.context),
-                    outcome="ERROR" if outcome.error else "ACCEPTED",
-                    error_code=error_code,
-                    completion=receipt,
-                )
-            )
-            print(
-                json.dumps(
-                    {
-                        "event": "M158_PROVIDER_CALL",
-                        "provider_call": outcome.reservation.provider_call,
-                        "product_version_id": product.product_version_id,
-                        "batch_index": batch.batch_index,
-                        "kind": batch.kind,
-                        "retry": retry,
-                        "outcome": "ERROR" if outcome.error else "ACCEPTED",
-                        "error_code": error_code,
-                        "duration_ms": outcome.timing.duration_ms,
-                    },
-                    ensure_ascii=False,
-                ),
-                flush=True,
-            )
-            return outcome.value if outcome.error is None else None
-
-        try:
-            for batch in plans[product.product_version_id]:
-                results = invoke(batch, retry=False)
-                if results is None:
-                    try:
-                        results = invoke(batch, retry=True)
-                    except RetryBudgetUnavailable:
-                        results = None
-                if batch.kind == "long_field_shard":
-                    field_id = batch.field_ids[0]
-                    long_contexts.setdefault(field_id, []).append(batch.context)
-                    long_coverages.setdefault(field_id, []).append(batch.coverage[field_id])
-                    long_calls.setdefault(field_id, []).append(calls[-1].provider_call)
-                    if results is not None:
-                        admitted, _decision = effective_policy.evidence_admitter(
-                            results[0],
-                            candidate_text=batch.context,
-                            product_display_name=product.product_display_name,
-                        )
-                        if admitted is not None:
-                            long_results.setdefault(field_id, []).append(admitted)
-                    continue
-                if results is None:
-                    results = tuple(
-                        _unknown_result(preview, field_id) for field_id in batch.field_ids
-                    )
-                for result in results:
-                    admitted, _decision = effective_policy.evidence_admitter(
-                        result,
+        batch_executions = _execute_planned_batches(
+            product=product,
+            material=material,
+            batches=plans[product.product_version_id],
+            completion_factory=completion_factory,
+            budget=budget,
+            gate=gate,
+            policy=effective_policy,
+            profile=batch_profile,
+        )
+        for batch_execution in batch_executions:
+            batch = batch_execution.batch
+            results = batch_execution.results
+            calls.extend(batch_execution.calls)
+            timings.extend(batch_execution.timings)
+            if batch.kind == "long_field_shard":
+                field_id = batch.field_ids[0]
+                long_contexts.setdefault(field_id, []).append(batch.context)
+                long_calls.setdefault(field_id, []).append(batch_execution.calls[-1].provider_call)
+                shard_coverage = dict(batch.coverage[field_id])
+                if results is not None:
+                    admitted, decision = effective_policy.evidence_admitter(
+                        results[0],
                         candidate_text=batch.context,
                         product_display_name=product.product_display_name,
                     )
-                    proposal = admitted or _unknown_result(preview, result.field_id)
-                    preview, record = _field_record(
-                        preview=preview,
-                        result=proposal,
-                        candidate_text=batch.context,
-                        coverage=batch.coverage[result.field_id],
-                        batch_index=batch.batch_index,
-                        provider_call=calls[-1].provider_call,
-                        phase="compact_coupled",
-                        replacement_selector=effective_policy.replacement_selector,
-                    )
-                    records.append(record)
-
-            schema = catalog.schema_for(product.insurance_class)
-            applicable_long = tuple(
-                field.field_id
-                for field in schema.fields
-                if field.field_id in M158_LONG_FIELD_IDS
-                and field.field_id in effective_policy.focus_field_ids
-            )
-            for field_id in applicable_long:
-                admitted_shards = tuple(long_results.get(field_id, ()))
-                proposal = (
-                    merge_atomic_shard_results(field_id, admitted_shards)
-                    if admitted_shards
-                    else _unknown_result(preview, field_id)
+                    shard_coverage["admission"] = {
+                        "original_proposal": _snapshot(results[0]),
+                        "accepted": admitted is not None,
+                        "decision": asdict(decision),
+                    }
+                    if admitted is not None:
+                        long_results.setdefault(field_id, []).append(admitted)
+                long_coverages.setdefault(field_id, []).append(shard_coverage)
+                continue
+            if results is None:
+                results = tuple(
+                    _unknown_result(preview, field_id) for field_id in batch.field_ids
                 )
-                candidate_text = "\n\n".join(long_contexts.get(field_id, ()))
-                if proposal.state == "present":
-                    admitted, _decision = effective_policy.evidence_admitter(
-                        proposal,
-                        candidate_text=candidate_text,
-                        product_display_name=product.product_display_name,
-                    )
-                    proposal = admitted or _unknown_result(preview, field_id)
-                coverage = {
-                    "scanned_page_count": material.scanned_page_count,
-                    "shard_count": len(long_contexts.get(field_id, ())),
-                    "admitted_shard_count": len(admitted_shards),
-                    "provider_calls": tuple(long_calls.get(field_id, ())),
-                    "shards": tuple(long_coverages.get(field_id, ())),
-                }
+            for result in results:
+                admitted, decision = effective_policy.evidence_admitter(
+                    result,
+                    candidate_text=batch.context,
+                    product_display_name=product.product_display_name,
+                )
+                proposal = admitted or _unknown_result(preview, result.field_id)
                 preview, record = _field_record(
                     preview=preview,
                     result=proposal,
-                    candidate_text=candidate_text,
-                    coverage=coverage,
-                    batch_index=max(
-                        batch.batch_index
-                        for batch in plans[product.product_version_id]
-                        if batch.field_ids == (field_id,)
-                    ),
-                    provider_call=max(long_calls.get(field_id, (0,))),
-                    phase="long_field_merge",
+                    candidate_text=batch.context,
+                    coverage={
+                        **batch.coverage[result.field_id],
+                        "admission": {
+                            "original_proposal": _snapshot(result),
+                            "accepted": admitted is not None,
+                            "decision": asdict(decision),
+                        },
+                    },
+                    batch_index=batch.batch_index,
+                    provider_call=batch_execution.calls[-1].provider_call,
+                    phase="compact_coupled",
                     replacement_selector=effective_policy.replacement_selector,
                 )
+                if admitted is None and result.state != "unknown":
+                    record = replace(
+                        record,
+                        proposed=_snapshot(result),
+                        proposed_audit=asdict(decision),
+                        reason=decision.reason,
+                    )
                 records.append(record)
-        finally:
-            completion.close()
+
+        schema = catalog.schema_for(product.insurance_class)
+        planned_long_ids = {
+            batch.field_ids[0]
+            for batch in plans[product.product_version_id]
+            if batch.kind == "long_field_shard"
+        }
+        applicable_long = tuple(
+            field.field_id
+            for field in schema.fields
+            if field.field_id in planned_long_ids
+        )
+        for field_id in applicable_long:
+            admitted_shards = tuple(long_results.get(field_id, ()))
+            proposal = (
+                merge_atomic_shard_results(field_id, admitted_shards)
+                if admitted_shards
+                else _unknown_result(preview, field_id)
+            )
+            candidate_text = "\n\n".join(long_contexts.get(field_id, ()))
+            if proposal.state == "present":
+                admitted, _decision = effective_policy.evidence_admitter(
+                    proposal,
+                    candidate_text=candidate_text,
+                    product_display_name=product.product_display_name,
+                )
+                proposal = admitted or _unknown_result(preview, field_id)
+            coverage = {
+                "scanned_page_count": material.scanned_page_count,
+                "shard_count": len(long_contexts.get(field_id, ())),
+                "admitted_shard_count": len(admitted_shards),
+                "provider_calls": tuple(long_calls.get(field_id, ())),
+                "shards": tuple(long_coverages.get(field_id, ())),
+            }
+            preview, record = _field_record(
+                preview=preview,
+                result=proposal,
+                candidate_text=candidate_text,
+                coverage=coverage,
+                batch_index=max(
+                    batch.batch_index
+                    for batch in plans[product.product_version_id]
+                    if batch.field_ids == (field_id,)
+                ),
+                provider_call=max(long_calls.get(field_id, (0,))),
+                phase="long_field_merge",
+                replacement_selector=effective_policy.replacement_selector,
+            )
+            records.append(record)
+        completion_checks[product.product_version_id] = audit_extraction_completion(
+            preview=preview,
+            baseline=product.preview,
+            expected_field_ids=tuple(
+                field.field_id for field in schema.fields
+                if field.field_id in effective_policy.focus_field_ids
+                and (not effective_policy.source_fields_only or "原文抽取" in field.formation_modes)
+            ),
+            planned_batches={batch.batch_index: batch.field_ids
+                             for batch in plans[product.product_version_id]},
+            batch_results={item.batch.batch_index: item.results for item in batch_executions},
+            confirmed_field_ids=confirmed_material_fields(product.source_manifest_sha256),
+        )
         output = _output_product(product, preview, calls)
         return M156ProductExecution(
             product=output,
@@ -767,7 +873,7 @@ def run_m158(
             started_at=timer.started_at,
             finished_at=finished_at,
         )
-        write_provider_trial_run(output_path, run)
+        artifact_path = write_checked_trial(output_path, run, tuple(completion_checks.values()))
     performance = timer.finish(
         peak_product_workers=execution.peak_products,
         peak_provider_calls=gate.peak_active,
@@ -812,12 +918,12 @@ def run_m158(
         "baseline_material_supported_present_count": baseline_present,
         "baseline_material_supported_field_count": baseline_supported,
         "baseline_material_supported_extraction_rate": (
-            baseline_present / baseline_supported if baseline_supported else 0.0
+            baseline_present / baseline_supported if baseline_supported else None
         ),
         "material_supported_present_count": result_present,
         "material_supported_field_count": result_supported,
         "material_supported_extraction_rate": (
-            result_present / result_supported if result_supported else 0.0
+            result_present / result_supported if result_supported else None
         ),
     }
     audit_payload: dict[str, Any] = {
@@ -827,8 +933,9 @@ def run_m158(
         "catalog_sha256": effective_policy.catalog_sha256,
         "business_feedback_sha256": feedback_sha256,
         "provider": ProviderIdentity().model_dump(mode="json"),
-        "max_calls": M158_MAX_CALLS,
+        "max_calls": max_calls,
         "planned_primary_calls": primary_count,
+        "batch_concurrency_profile": batch_profile.model_dump(mode="json"),
         "call_count": budget.used,
         "started_at": timer.started_at,
         "finished_at": finished_at,
@@ -836,6 +943,9 @@ def run_m158(
         "review_publish_admission": False,
         "performance": performance.model_dump(mode="json"),
         "metrics": metrics,
+        "result_artifact_path": str(artifact_path),
+        "completion_checks": {version: check.as_dict()
+                              for version, check in completion_checks.items()},
         "products": [
             {
                 "product_id": item.product.product_id,
@@ -911,6 +1021,7 @@ def run_m158(
         **assessment_payload,
     }
     _write_json(assessment_output_path, assessment)
+    require_complete_execution(tuple(completion_checks.values()))
     return run, audit, assessment
 
 

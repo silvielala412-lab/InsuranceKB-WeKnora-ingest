@@ -19,6 +19,7 @@ import type {
   V5DynamicFieldDiff,
   V5DynamicFieldGapfillResponse,
 } from '../../../../api/schema-wiki/v5/v5DynamicGapfillContract.ts'
+import { parseV5FieldTable } from './v5FieldTable.ts'
 
 const props = withDefaults(defineProps<{ client?: V5PreviewClient }>(), {
   client: () => createV5PreviewClient(),
@@ -55,6 +56,9 @@ const selectedPreview = computed(() => previews.value.find(
 const selectedField = computed(() => selectedPreview.value?.fields.find(
   field => field.field_id === selectedFieldId.value,
 ) ?? selectedPreview.value?.fields[0] ?? null)
+const selectedFieldTable = computed(() => (
+  selectedField.value ? parseV5FieldTable(selectedField.value) : null
+))
 const selectedDynamicDiff = computed<V5DynamicFieldDiff | null>(() => (
   dynamicResult.value?.product_version_id === selectedPreview.value?.product_version_id
     ? dynamicResult.value.fields.find(field => field.field_id === selectedField.value?.field_id) ?? null
@@ -336,7 +340,7 @@ onMounted(loadCatalog)
           {{ providerRepairProducts.length }} 款已执行分类抽取/定向补抽
         </span>
         <span v-if="providerReviewProducts.length">
-          {{ providerReviewProducts.length }} 款 Evidence 待核验
+          {{ providerReviewProducts.length }} 款抽取完整性与证据待复核
         </span>
         <code>{{ providerRun.run_sha256.slice(0, 12) }}</code>
       </div>
@@ -347,9 +351,12 @@ onMounted(loadCatalog)
       </ul>
       <ul v-if="providerReviewProducts.length" class="v5-preview__review-list">
         <li v-for="product in providerReviewProducts" :key="product.product_version_id">
-          {{ product.product_display_name }} · 数据已保留，Evidence 待核验
+          {{ product.product_display_name }} · 数据已保留，抽取完整性与证据待复核
         </li>
       </ul>
+      <p data-testid="v5-completeness-notice">
+        已有数据不代表全部抽全；字段填充数量不是抽取准确率。“待补充”需要核查原材料和抽取过程，不能直接理解为原文没有。
+      </p>
     </section>
 
     <p v-if="errorMessage" class="v5-preview__error" role="alert">{{ errorMessage }}</p>
@@ -470,7 +477,22 @@ onMounted(loadCatalog)
 
           <section class="v5-preview__value">
             <h4>字段值</h4>
-            <p v-if="selectedField.state === 'present'">{{ formatValue(selectedField.value) }}</p>
+            <div v-if="selectedField.state === 'present' && selectedFieldTable" class="v5-preview__table-wrap">
+              <table class="v5-preview__table">
+                <caption>{{ selectedFieldTable.caption }}</caption>
+                <thead>
+                  <tr>
+                    <th v-for="column in selectedFieldTable.columns" :key="column" scope="col">{{ column }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, rowIndex) in selectedFieldTable.rows" :key="rowIndex">
+                    <td v-for="(cell, cellIndex) in row" :key="`${rowIndex}-${cellIndex}`">{{ cell }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else-if="selectedField.state === 'present'">{{ formatValue(selectedField.value) }}</p>
             <p v-else class="v5-preview__empty">{{ stateLabels[selectedField.state] }}</p>
           </section>
 
@@ -592,6 +614,12 @@ onMounted(loadCatalog)
 .v5-preview__value, .v5-preview__evidence { padding: 4px 0 22px; }
 .v5-preview__value h4, .v5-preview__evidence h4 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0; }
 .v5-preview__value > p:not(.v5-preview__empty) { margin: 0; padding: 14px 16px; border-left: 3px solid var(--td-brand-color); background: var(--td-bg-color-secondarycontainer); white-space: pre-wrap; line-height: 1.65; overflow-wrap: anywhere; }
+.v5-preview__table-wrap { overflow-x: auto; border-left: 3px solid var(--td-brand-color); background: var(--td-bg-color-secondarycontainer); }
+.v5-preview__table { width: 100%; min-width: 680px; border-collapse: collapse; line-height: 1.45; }
+.v5-preview__table caption { padding: 12px 14px 8px; color: var(--td-text-color-secondary); font-size: 12px; text-align: left; }
+.v5-preview__table th, .v5-preview__table td { padding: 10px 12px; border: 1px solid var(--td-component-border); text-align: left; vertical-align: top; white-space: nowrap; }
+.v5-preview__table th { background: var(--td-bg-color-secondarycontainer-hover); color: var(--td-text-color-primary); font-weight: 600; }
+.v5-preview__table td { color: var(--td-text-color-secondary); }
 .v5-preview__evidence h4 span { color: var(--td-text-color-placeholder); font-weight: 400; }
 .v5-preview__evidence ol { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .v5-preview__evidence li { padding: 12px 14px; border: 1px solid var(--td-component-border); border-radius: 6px; }

@@ -236,6 +236,39 @@ def _field_extraction_instruction(field: FieldDefinition) -> str | None:
             )
         return profile.instruction
     instructions = {
+        "health_declaration_requirements": (
+            "健康告知要求：只抽取明确涉及健康、疾病、就医史或健康问卷的告知义务、免告知条件。"
+            "普通条款的‘如实告知有关情况’本身不能推出健康告知宽松、免告知或具体健康问卷。"
+        ),
+        "underwriting_method": (
+            "核保方式：必须有明确的智能、人工、免核保或具体核保模式依据；"
+            "‘同意承保’、‘审核同意’本身不是核保模式，不得据此填人工核保。"
+        ),
+        "underwriting_investigation_requirements": (
+            "契约调查要求：只抽取投保阶段明确的调查触发条件和补充材料。"
+            "一般如实告知、理赔核查、合同成立约定都不能替代契约调查规则。"
+        ),
+        "sum_assured_range": (
+            "基本保险金额/保额范围：抽取原文明确的保额约定方式、最低或最高可投保保额、"
+            "保额单位及年龄等限制。材料仅给出部分约定时保留已有部分，例如未成年人身故"
+            "保险金额总和限制；不得因为没有具体上下限数字而遗漏已有规则，不得补造数值。"
+            "利益演示的示例金额不是投保范围，减保比例由减保字段承接。"
+        ),
+        "additional_benefit_rules": (
+            "额外/加倍给付规则：只记录明确相对于基础责任额外或加倍给付的触发条件与金额。"
+            "身故金的基础计算比例、保额自然增长、红利购买增额保险、引用附加险均不能"
+            "单独证明存在额外/加倍给付。没有直接依据时保持 unknown。"
+        ),
+        "benefit_interaction_rules": (
+            "责任间给付关系：抽取责任互斥/累计、先后给付、给付后的合同终止或继续有效。"
+            "即使只有身故责任，原文‘给付身故保险金，本合同终止’也是有效的给付后状态。"
+            "双被保人保留一人先身故、两人均身故、同时身故的关系；每个规则单列原文事实"
+            "并附同页逐字 Evidence，不要推断未写明的现金价值后果。"
+        ),
+        "objection_handling_scripts": (
+            "产品异议话术：只抽取材料明确提供的异议问题与应答；普通现金价值、缴费或免责"
+            "条款不等于异议话术，不得自行编写销售回答。"
+        ),
         "coverage_responsibilities": (
             "保险责任：遍历全部材料后合并所有正式责任项目。按原子责任逐项编号，保留责任名称、"
             "触发条件、给付口径、次数/比例/限额和适用范围；不得使用‘等’或‘详见条款’省略责任项目；"
@@ -357,6 +390,11 @@ def _schema_prompt(
             "product_display_name": request.product_display_name,
             "schema_id": schema.schema_id,
             "schema_fields": schema_rows,
+            "output_contract": {
+                "field_count": len(fields),
+                "one_row_per_field_id": True,
+                "multiple_facts": "同一字段多个事实放进该行value字符串数组；禁止复制field_id生成多行。",
+            },
             "source_text": request.source_text,
             "repair_hint": repair_hint,
             "synthesis_context": synthesis_context,

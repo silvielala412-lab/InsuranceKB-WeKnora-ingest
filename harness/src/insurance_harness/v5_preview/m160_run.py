@@ -5,15 +5,23 @@ from __future__ import annotations
 import argparse
 import os
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Final
 
+from .catalog import load_v5_catalog
 from .field_profiles import BUSINESS_PRIORITY_FIELD_IDS
+from .full_schema_quality import (
+    admit_full_schema_evidence_subset,
+    build_full_schema_field_context,
+    choose_full_schema_replacement,
+)
 from .llm_plugin import OpenAICompatibleCompletion
-from .m154_concurrency import ProductConcurrencyProfile
+from .m154_concurrency import BatchConcurrencyProfile, ProductConcurrencyProfile
 from .m156_quality import M156_FOCUS_FIELD_IDS
 from .m156_run import M156_PRODUCT_IDS, M156Material, _sha256_bytes
 from .m156_run import _load_m156_material as _load_base_material
+from .m157_quality import build_m157_field_context, classify_m157_evidence
 from .m158_quality import M158_LONG_FIELD_IDS, M158_MAX_CALLS
 from .m158_run import M158Batch, M158RunPolicy, run_m158
 from .m160_quality import (
@@ -27,6 +35,7 @@ from .provider_trial import (
     V5ProviderTrialRun,
     load_provider_trial_run,
 )
+from .source_evidence import classify_evidence
 
 M160_BASELINE_RUN_SHA256: Final = "d7c5819ac8feda7c5d6d8a4e31595c99be7081da19416d5dd0f3064f420e7b4a"
 M160_BASELINE_FILE_SHA256: Final = (
@@ -39,7 +48,9 @@ M160_BUSINESS_FEEDBACK_SHA256: Final = (
 M160_FOCUS_FIELD_IDS: Final[tuple[str, ...]] = tuple(
     dict.fromkeys((*M156_FOCUS_FIELD_IDS, *BUSINESS_PRIORITY_FIELD_IDS))
 )
-M160_MAX_COMPACT_FIELDS: Final = 12
+# Keep detail-heavy business fields in small batches. Large coupled responses
+# encouraged otherwise valid models to compress rights, claim and drug rules.
+M160_MAX_COMPACT_FIELDS: Final = 4
 M160_COMPACT_FIELD_IDS: Final[tuple[str, ...]] = tuple(
     field_id for field_id in M160_FOCUS_FIELD_IDS if field_id not in M158_LONG_FIELD_IDS
 )
@@ -47,6 +58,33 @@ M160_COMPACT_FIELD_IDS: Final[tuple[str, ...]] = tuple(
 
 def _m160_repair_hint(batch: M158Batch) -> str:
     return m160_repair_hint(batch.kind)
+
+
+def _material_repair_hint(batch: M158Batch) -> str:
+    return _m160_repair_hint(batch) + (
+        " Read every target field against its description, not just its title. "
+        "Candidate pages are search hints, not proof that a fact exists. "
+        "For source facts preserve the original wording and split separate rules into "
+        "separate array items, each supported by a short verbatim same-page quote. "
+        "If only part of a field is stated, return that supported part without inventing "
+        "missing conditions. Do not turn absent detail into a negative fact. "
+        "For fields requiring a specific method, threshold or script, generic contract "
+        "wording does not establish that method, threshold or script."
+        " 对普通原文抽取字段，value使用原文完整规则句的字符串数组，每项直接复制对应"
+        "evidence.quote中的完整句子。不要改写主语或省略条件；保留原句中的您、我们、"
+        "本合同和脚注数字。每项是一个独立且条件完整的规则。结构化选项字段仍按schema格式。"
+    )
+
+
+def material_backed_policy(policy: M158RunPolicy) -> M158RunPolicy:
+    """Shared quality policy for e生保 and newly prepared product materials."""
+    return replace(
+        policy, repair_hint_builder=_material_repair_hint,
+        evidence_admitter=admit_full_schema_evidence_subset,
+        replacement_selector=choose_full_schema_replacement,
+        source_fields_only=True, field_context_builder=build_full_schema_field_context,
+        evidence_classifier=classify_evidence,
+    )
 
 
 def _load_m160_material(
@@ -107,6 +145,9 @@ def run_m160(
     focus_field_ids: Sequence[str] = M160_FOCUS_FIELD_IDS,
     max_compact_fields: int = M160_MAX_COMPACT_FIELDS,
     local_preview_baseline: bool = False,
+    batch_concurrency_profile: BatchConcurrencyProfile | None = None,
+    material_backed: bool = False,
+    material_backed_field_ids: Sequence[str] | None = None,
 ) -> tuple[V5ProviderTrialRun, Mapping[str, Any], Mapping[str, Any]]:
     """Run the M158 engine against the frozen M159 baseline under M160 gates."""
 
@@ -119,19 +160,37 @@ def run_m160(
     else:
         baseline_run_sha256 = M160_BASELINE_RUN_SHA256
         baseline_file_sha256 = M160_BASELINE_FILE_SHA256
+    effective_focus_field_ids = tuple(focus_field_ids)
+    if material_backed:
+        catalog = load_v5_catalog()
+        effective_focus_field_ids = tuple(
+            dict.fromkeys(
+                material_backed_field_ids
+                if material_backed_field_ids is not None
+                else (
+                    field.field_id
+                    for schema in catalog.schemas
+                    for field in schema.fields
+                )
+            )
+        )
     policy = M158RunPolicy(
         baseline_run_sha256=baseline_run_sha256,
         baseline_file_sha256=baseline_file_sha256,
         catalog_sha256=M160_CATALOG_SHA256,
         business_feedback_sha256=M160_BUSINESS_FEEDBACK_SHA256,
         artifact_label="m160",
-        focus_field_ids=tuple(focus_field_ids),
+        focus_field_ids=effective_focus_field_ids,
         max_compact_fields=max_compact_fields,
         material_loader=_load_m160_material,
         repair_hint_builder=_m160_repair_hint,
         evidence_admitter=admit_m160_evidence_subset,
         replacement_selector=choose_m160_replacement,
+        field_context_builder=build_m157_field_context,
+        evidence_classifier=classify_m157_evidence,
     )
+    if material_backed:
+        policy = material_backed_policy(policy)
     return run_m158(
         baseline_path=baseline_path,
         sample_root=sample_root,
@@ -145,6 +204,7 @@ def run_m160(
         concurrency_profile=concurrency_profile,
         product_ids=product_ids,
         policy=policy,
+        batch_concurrency_profile=batch_concurrency_profile,
     )
 
 
@@ -159,12 +219,15 @@ def main() -> None:
     parser.add_argument("--compact-only", action="store_true")
     parser.add_argument("--focus-field-id", action="append", choices=M160_COMPACT_FIELD_IDS)
     parser.add_argument("--local-preview-baseline", action="store_true")
+    parser.add_argument("--material-backed", action="store_true")
+    parser.add_argument("--material-backed-field-id", action="append")
     parser.add_argument("--max-compact-fields", type=int, choices=range(1, 13))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--audit-output", type=Path, required=True)
     parser.add_argument("--assessment-output", type=Path, required=True)
     parser.add_argument("--api-key-env", default="HARNESS_DASHSCOPE_API_KEY")
     parser.add_argument("--max-product-concurrency", type=int, choices=range(1, 5), default=4)
+    parser.add_argument("--max-batch-concurrency", type=int, choices=range(1, 9), default=1)
     args = parser.parse_args()
     api_key = os.environ.get(args.api_key_env, "").strip()
     if not api_key:
@@ -178,6 +241,8 @@ def main() -> None:
         raise SystemExit("M160_COMPACT_ONLY_REQUIRES_ONE_PRODUCT")
     if args.focus_field_id and (not args.compact_only or len(product_ids) != 1):
         raise SystemExit("M160_FOCUS_FIELD_REQUIRES_SINGLE_PRODUCT_COMPACT_RUN")
+    if args.material_backed_field_id and not args.material_backed:
+        raise SystemExit("M160_MATERIAL_FIELDS_REQUIRE_MATERIAL_BACKED")
     focus_field_ids = (
         tuple(dict.fromkeys(args.focus_field_id))
         if args.focus_field_id
@@ -186,7 +251,7 @@ def main() -> None:
         else M160_FOCUS_FIELD_IDS
     )
     max_compact_fields = args.max_compact_fields or (
-        2 if args.compact_only else M160_MAX_COMPACT_FIELDS
+        2 if args.compact_only else 8 if args.material_backed else M160_MAX_COMPACT_FIELDS
     )
 
     def completion_factory() -> OpenAICompatibleCompletion:
@@ -214,6 +279,9 @@ def main() -> None:
         focus_field_ids=focus_field_ids,
         max_compact_fields=max_compact_fields,
         local_preview_baseline=args.local_preview_baseline,
+        batch_concurrency_profile=BatchConcurrencyProfile(max_batches=args.max_batch_concurrency),
+        material_backed=args.material_backed,
+        material_backed_field_ids=args.material_backed_field_id,
     )
     print(
         {

@@ -22,6 +22,7 @@ from .material_loader import PreparedProduct
 from .material_support import is_pdf_extractable_field
 from .ocr import BAILIAN_OCR_MODEL, BailianOcrClient
 from .source_evidence import SourcePage, classify_evidence
+from .source_supported_completion import complete_source_supported_fields
 from .source_manifest import APPROVED_PRODUCTS
 from .trial_artifacts import (
     seal_provider_trial_run,
@@ -218,6 +219,17 @@ def _run_controlled_product(
                 f"attempt={attempt_number} code={_error_code(exc)}"
             )
 
+    terminal_error = _review_error_code(preview)
+    preview, completion_receipts = complete_source_supported_fields(
+        preview=preview,
+        source_manifest_sha256=prepared.source_manifest_sha256,
+        pages=prepared.pages,
+    )
+    if completion_receipts:
+        emit(
+            f"SOURCE_SUPPORTED_COMPLETION version={approved.product_version_id} "
+            f"fields={len(completion_receipts)}"
+        )
     terminal_error = _review_error_code(preview)
     review_required = terminal_error is not None
     material_support, material_support_metrics = _material_support_for_product(
@@ -531,6 +543,19 @@ def run_provider_trial(
                 # The metadata mapping is a merge base only. Keep provider
                 # failures explicit instead of exposing a partial preview.
                 preview = None
+            if preview is not None:
+                preview, completion_receipts = complete_source_supported_fields(
+                    preview=preview,
+                    source_manifest_sha256=prepared.source_manifest_sha256,
+                    pages=prepared.pages,
+                )
+                if completion_receipts:
+                    emit(
+                        f"SOURCE_SUPPORTED_COMPLETION version={approved.product_version_id} "
+                        f"fields={len(completion_receipts)}"
+                    )
+                terminal_error = _review_error_code(preview)
+                review_required = terminal_error is not None
             material_support, material_support_metrics = _material_support_for_product(
                 prepared=prepared,
                 schema=schema,

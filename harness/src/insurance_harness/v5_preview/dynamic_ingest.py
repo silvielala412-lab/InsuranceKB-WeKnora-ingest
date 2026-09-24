@@ -573,7 +573,15 @@ def _source_guidance_bonus(page: CandidateSourcePage, field: FieldDefinition) ->
         _normalized(role) in guidance and _normalized(role) in document_name
         for role in roles
     )
-    return 4 if matched else 0
+    profile = field_extraction_profile(field.field_id)
+    preferred = bool(
+        profile
+        and any(
+            _normalized(term) in document_name
+            for term in profile.preferred_document_terms
+        )
+    )
+    return (4 if matched else 0) + (24 if preferred else 0)
 
 
 def _looks_like_weak_rate_table(

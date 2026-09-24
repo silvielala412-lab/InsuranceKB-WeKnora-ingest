@@ -93,7 +93,9 @@ _PAYMENT_FREQUENCY = re.compile(
     r"(?:趸[交缴]|一次(?:性)?[交缴](?:清)?|年[交缴]|半年[交缴]|季[交缴]|月[交缴])"
 )
 _PAYMENT_FIELD_CUES: Mapping[str, tuple[str, ...]] = {
-    "premium_payment_term": ("交费期间", "缴费期间", "交费期限", "缴费期限"),
+    "premium_payment_term": (
+        "交费期间", "缴费期间", "交费期限", "缴费期限", "交费年期", "缴费年期",
+    ),
     "premium_payment_frequency": ("交费方式", "缴费方式"),
 }
 _PAYMENT_EXAMPLE_CUES = ("示例", "假设", "举例", "为例", "演示")
@@ -364,7 +366,7 @@ def admit_verified_evidence_subset(
 
 
 def _canonical_payment(raw: str, field_id: str) -> str:
-    value = raw.replace("缴", "交")
+    value = re.sub(r"\s+", "", raw).replace("缴", "交")
     if value.startswith("一次") or value == "趸交":
         return "趸交"
     if field_id == "premium_payment_term":
@@ -376,6 +378,12 @@ def _payment_values(value: CandidateValue | str | None, field_id: str) -> tuple[
     if value is None:
         return ()
     text = "，".join(_items(value)) if not isinstance(value, str) else value
+    # A date in an illustration is not a payment-term option. Remove the whole
+    # date before the duration matcher can read its calendar year as a term.
+    text = re.sub(r"(?<!\d)\d{4}\s*年\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?", "", text)
+    # PDF layout inserts spaces between a duration and its unit. Do not join
+    # adjacent digits: that would turn separate table cells into a new number.
+    text = re.sub(r"(?<=\d)\s+(?=年|个月)", "", text)
     pattern = _PAYMENT_TERM if field_id == "premium_payment_term" else _PAYMENT_FREQUENCY
     return tuple(
         dict.fromkeys(_canonical_payment(item, field_id) for item in pattern.findall(text))
@@ -494,6 +502,8 @@ def choose_m158_replacement(
     proposed_evidence_quotes: Sequence[str],
     candidate_text: str,
     product_display_name: str,
+    baseline_evidence_locators: Sequence[str] = (),
+    proposed_evidence_locators: Sequence[str] = (),
 ) -> M156ReplacementDecision:
     proposed = audit_m158_candidate(
         field_id=field_id,

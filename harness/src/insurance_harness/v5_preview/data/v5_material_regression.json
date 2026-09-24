@@ -1,0 +1,244 @@
+{
+  "contract": "v5-material-regression-minimum.v1",
+  "purpose": "Minimum known-material regression checks, not a complete recall or accuracy gold set.",
+  "products": [
+    {
+      "product_id": "1813",
+      "product_version_id": "1813-1",
+      "source_manifest_sha256": "90de63cab338361897a6208cad856c9fffe704375c44ee14e33a973ec12eff81",
+      "required_fields": [
+        {
+          "field_id": "entry_age_range",
+          "display_name": "投保年龄",
+          "locator": "pdf:产品说明书.pdf#page=7",
+          "quote": "本合同接受的被保险人的投保年龄范围为 0 周岁(须出生满 28 日)至 65 周岁，且须符合投保当时我们的规定。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "purchase_limitations",
+          "display_name": "购买限制",
+          "locator": "pdf:平安安佑福（惠享版）定期重大疾病保险等险种投保规则_FINAL.pdf#page=1",
+          "quote": "8. 起保点要求：Max[30 万保额，800 元保费]；\n9. 最 高保 额限 制 ：安 佑惠 享 定期 （1813） 与嘉 护重 疾 23（ 1722/1722D） 与嘉 护定 期 重疾\n（1628/1628D）累计重疾责任保额不允许超过 800 万；",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_payment_term",
+          "display_name": "缴费期限",
+          "locator": "pdf:平安安佑福（惠享版）定期重大疾病保险等险种投保规则_FINAL.pdf#page=1",
+          "quote": "4. 交费年期：\n• 保 10 年：10 年交\n• 保 15 年：15 年交\n• 保 20 年：10/15/20 年交\n• 保 30 年、保至 60 岁、保至 70 岁：10/15/20/30 年交",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_payment_frequency",
+          "display_name": "缴费方式",
+          "locator": "pdf:平安安佑福（惠享版）定期重大疾病保险等险种投保规则_FINAL.pdf#page=1",
+          "quote": "6. 交费方式：年交；",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_grace_period",
+          "display_name": "宽限期",
+          "locator": "pdf:保险条款.pdf#page=8",
+          "quote": "3.2 宽限期 除另有约定外，分期支付保险费的，您支付首期保险费后，如果您到期未支付保险费，\n自保险费约定支付日的次日零时起 60 日为宽限期。宽限期内发生的保险事故，我们\n仍会承担保险责任，但在给付保险金时会扣减您欠交的保险费。\n除另有约定外，如果您宽限期结束之时仍未支付保险费，则本合同自宽限期满的次日\n零时起效力中止。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "coverage_responsibilities",
+          "display_name": "保险责任",
+          "locator": "pdf:产品说明书.pdf#page=1",
+          "quote": "若您与我们约定的保险计划为计划一，本合同的保险责任包括重大疾病保险金和身故保险金责任。\n若您与我们约定的保险计划为计划二，本合同的保险责任包括重大疾病保险金、轻度疾病保险金、中症疾病保险金和身故保险金责任。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "exclusions",
+          "display_name": "责任免除",
+          "locator": "pdf:保险条款.pdf#page=28",
+          "quote": "（3）提供器官移植治疗的器官移植中心或医院必须拥有合法经营执照。\n任何因其他传播方式（包括：性传播或静脉注射毒品）导致的 HIV 感染或患艾滋病不\n在保障范围内。\n99 脊柱裂 指脊椎或颅骨不完全闭合，导致脊髓膜突出，脑（脊）膜突出或脑膨出，合并大小便\n失禁，部分或完全性下肢瘫痪畸形等神经学上的异常，但不包括由 X 线摄片发现的没\n有合并脊髓膜突出或脑（脊）膜突出的隐形脊柱裂。\n100 严 重 面 部\n烧伤\n指面部烧伤程度为Ⅲ度，且Ⅲ度烧伤的面积达到面部表面积的 80％或者 80％以上。\n101 成 骨 不 全\n症第三型\n指一种胶原病，特征为骨易碎，骨质疏松和易骨折。该病有 4 种类型：Ⅰ型、Ⅱ型、\nⅢ型、Ⅳ型。只保障Ⅲ型成骨不全的情形。其主要临床特点有：发展迟缓、多发性骨\n折、进行性脊柱后侧凸及听力损害。Ⅲ型成骨不全的诊断必须根据身体检查，家族史，\nX 线检查和皮肤活检报告资料确诊。\n本公司承担本项疾病责任不受“2.1 责任免除”中“遗传性疾病，先天性畸形、变形\n或染色体异常”的限制。\n102 多 处 臂 丛\n神 经 根 性\n撕脱\n指由于疾病或意外伤害导致至少两根臂丛神经根性撕脱，所造成的手臂感觉功能与运\n动功能完全永久性丧失。该病须由相关专科医生明确诊断，并且有电生理检查结果证\n实。\n103 原 发 性 脊\n柱 侧 弯 的\n矫正手术\n指被保险人因原发性脊柱侧弯，实际实施了对该病的矫正外科手术。但由于先天性脊\n柱侧弯以及其他疾病或意外伤害导致的继发性脊柱侧弯而进行的手术治疗不属于本\n保障责任。\n104 溶 血 性 链\n球 菌 引 起\n的坏疽",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "claim_application_deadline_and_documents",
+          "display_name": "理赔申请时效与申请材料",
+          "locator": "pdf:产品说明书.pdf#page=5",
+          "quote": "保险事故通知\n您、被保险人或受益人知道保险事故发生后应当在 10 日内通知我们。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "policyholder_rights",
+          "display_name": "保单权益",
+          "locator": "pdf:产品说明书.pdf#page=3",
+          "quote": "保单贷款：\n在本合同有效期内，经我们审核同意后您可在犹豫期后办理保单贷款。贷款金额不得超过申请贷款时保险合同现金价值的 80%扣除各项欠款后的余额，每次贷款期限最长不超过 6\n个月。若您到期未能足额偿还贷款本息，则您所欠的贷款本金及利息将作为新的贷款本金计\n息。当未偿还贷款本金及利息之和加上其他未还款项达到保险合同现金价值时，保险合同的\n效力中止。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "product_bundle_rules",
+          "display_name": "产品搭配规则",
+          "locator": "pdf:平安安佑福（惠享版）定期重大疾病保险等险种投保规则_FINAL.pdf#page=1",
+          "quote": "-206-\n平安安佑福（惠享版）定期重大疾病保险投保规则\n【说明：本规则仅适用于《平安安佑福（惠享版）定期重大疾病保险》（险种简称：安佑惠享定期；险种代码：\n1813），未涉及之规定以《个人寿险核保规则(2024 年)》规定为准】\n1. 销售渠道：个险（A01）；\n2. 投保年龄：0-65 岁；\n3. 保险期间：\n 0-17 岁：20 年、30 年、至 60 岁、至 70 岁；\n 18-65 岁：10 年、15 年、20 年、30 年、至 60 岁、至 70 岁；\n4. 交费年期：\n 保 10 年：10 年交\n 保 15 年：15 年交\n 保 20 年：10/15/20 年交\n 保 30 年、保至 60 岁、保至 70 岁：10/15/20/30 年交\n5. 交费期、保险期间与最大投保年龄的关系：\n 10/15/20/30 年保险期：交费期+投保年龄≤75 岁；\n 保至 60 岁的保险期：交费期+投保年龄≤60 岁；\n 保至 70 岁的保险期：交费期+投保年龄≤70 岁；\n6. 交费方式：年交；\n7. 险种组合规则：安佑惠享定期（1813）可以单独投保，也可以附加其他附加险，搭配规则详\n见险种搭配表；\n8. 起保点要求：Max[30 万保额，800 元保费]；\n9. 最 高保 额限 制 ：安 佑惠 享 定期 （1813） 与嘉 护重 疾 23（ 1722/1722D） 与嘉 护定 期 重疾\n（1628/1628D）累计重疾责任保额不允许超过 800 万；\n10. 风险保额计算：\n附件 13：",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        }
+      ]
+    },
+    {
+      "product_id": "1837",
+      "product_version_id": "1837-1",
+      "source_manifest_sha256": "216b968732ad66b903e943bb12867c270614a61bf84dc7e534c6d8a3d8ef1ca0",
+      "required_fields": [
+        {
+          "field_id": "entry_age_range",
+          "display_name": "投保年龄",
+          "locator": "pdf:平安盛世金越（尊享版26）终身寿险（分红型）等险种投保规则_FINAL.pdf#page=1",
+          "quote": "4. 投保年龄：\n交费年期\n单被保险人 双被保险人\n男 女 男 女\n趸交 0-67 岁 0-71 岁 0-67 岁 0-70 岁\n3 年交 0-66 岁 0-69 岁 0-66 岁 0-69 岁\n6 年交 0-65 岁 0-68 岁 0-65 岁 0-68 岁\n10 年交 0-63 岁 0-66 岁 0-63 岁 0-65 岁\n15 年交 0-60 岁 0-64 岁 0-60 岁 0-60 岁\n20 年交 0-59 岁 0-60 岁 0-55 岁 0-55 岁",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "purchase_limitations",
+          "display_name": "购买限制",
+          "locator": "pdf:平安盛世金越（尊享版26）终身寿险（分红型）等险种投保规则_FINAL.pdf#page=1",
+          "quote": "6. 最低保费：\n• 趸交：100 万元；\n• 3 年交：2 万元；\n• 6 年、10 年、15 年、20 年交：0.8 万元；",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_payment_term",
+          "display_name": "缴费期限",
+          "locator": "pdf:平安盛世金越（尊享版26）终身寿险（分红型）等险种投保规则_FINAL.pdf#page=1",
+          "quote": "2. 交费年期：趸交、3 年、6 年、10 年、15 年、20 年交；",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_payment_frequency",
+          "display_name": "缴费方式",
+          "locator": "pdf:平安盛世金越（尊享版26）终身寿险（分红型）等险种投保规则_FINAL.pdf#page=1",
+          "quote": "3. 交费方式：趸交、年交；",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_grace_period",
+          "display_name": "宽限期",
+          "locator": "pdf:产品说明书.pdf#page=8",
+          "quote": "宽限期\n除另有约定外，分期支付保险费的，您支付首期保险费后，如果您到期未支付保险费，自保险费约定支付日的次日零时起 60 日为宽限期。宽限期内发生的保险事故，我们仍会承担保险责任，但在给付保险金时会扣减您欠交的保险费。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "coverage_responsibilities",
+          "display_name": "保险责任",
+          "locator": "pdf:保险条款.pdf#page=5",
+          "quote": "1.4 保单红利 本合同为分红保险合同，您享有参与分配我们分红保险业务可分配盈余的\n权利。\n在本合同保险期间内，我们每年根据分红保险业务的实际经营状况确定红\n利分配方案。保单红利是不保证的。\n若我们确定本合同有红利分配，则该红利将于保单周年日分配给您，我们\n会向您寄送每个保单年度的分红报告，告知您分红的具体情况。\n您在投保时可选择以下任何一种红利领取方式，如果您在投保时未选择红\n利领取方式，则以累积生息方式办理：\n一、累积生息：红利留存在本公司，按我们每年确定的利率储存生息，并\n于您申请或本合同终止时给付。\n二、购买交清增额保险：依据被保险人当时的年龄，以红利作为一次交清\n的净保险费\n12\n购买交清增额保险，增加本合同的累积交清增额基本保险\n金额\n13\n。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "exclusions",
+          "display_name": "责任免除",
+          "locator": "pdf:产品说明书.pdf#page=3",
+          "quote": "-\n若合同被保险人为一人，因下列情形之一导致被保险人身故的，我们不承担给付身故保\n险金的责任；若合同被保险人为两人，因下列第 1 项情形导致任一被保险人身故的，我们不\n承担给付身故保险金的责任，因下列其他情形之一导致后身故的被保险人身故的，我们不承\n担给付身故保险金的责任：\n1.投保人对被保险人的故意杀害、故意伤害；\n2.被保险人故意犯罪或者抗拒依法采取的刑事强制措施；\n3.被保险人自合同成立或者合同效力恢复之日起 2 年内自杀，但被保险人自杀时为无民\n事行为能力人的除外；\n4.被保险人服用、吸食或注射毒品；\n5.被保险人酒后驾驶机动车；\n6.战争、军事冲突、暴乱或武装叛乱；\n7.核爆炸、核辐射或核污染。\n若合同被保险人为一人，发生上述第 1 项情形导致被保险人身故的，合同终止，我们向\n被保险人的继承人（除投保人本人外）退还合同的现金价值；若合同被保险人为两人，发生\n上述第 1 项情形导致任一被保险人身故的，合同终止，我们向被保险人的继承人（除投保人\n本人外）退还合同的现金价值；若因上述第 1 项情形导致身故的被保险人为两人，两名被保\n险人身故有先后顺序的，则继承人为先身故的被保险人的继承人；若因上述第 1 项情形导致\n身故的被保险人为两人且两名被保险人同时身故或者无法确定身故的先后顺序，则继承人为\n两名被保险人的继承人，我们将向被保险人一的继承人退还合同现金价值的 50%，将向被保\n险人二的继承人退还合同现金价值的 50%。\n若合同被保险人为一人，因上述其他项情形导致被保险人身故的，合同终止，我们向您",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "claim_application_deadline_and_documents",
+          "display_name": "理赔申请时效与申请材料",
+          "locator": "pdf:保险条款.pdf#page=9",
+          "quote": "更受益人的书面通知后，在保险单或其他保险凭证上批注或附贴批单。\n您在指定和变更身故保险金受益人时，必须经过被保险人同意。\n受益人故意造成被保险人身故、伤残、疾病的，或者故意杀害被保险人未\n遂的，该受益人丧失受益权。\n当本合同被保险人为一人时，被保险人身故后，有下列情形之一的，保险\n金作为被保险人的遗产，由我们依照关于继承的法律法规履行给付保险金\n的义务；当本合同被保险人为两人时，后身故的被保险人身故后，有下列\n情形之一的，保险金作为后身故的被保险人的遗产，由我们依照关于继承\n的法律法规履行给付保险金的义务：\n1.没有指定受益人，或者受益人指定不明无法确定的；\n2.受益人先于被保险人身故，没有其他受益人的；\n3.受益人依法丧失受益权或者放弃受益权，没有其他受益人的。\n受益人与被保险人在同一事件中身故，且不能确定身故先后顺序的，推定\n受益人身故在先。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "policyholder_rights",
+          "display_name": "保单权益",
+          "locator": "pdf:保险条款.pdf#page=1",
+          "quote": "您拥有的重要权益\n 犹豫期为20日，犹豫期内您可以要求全额退还保险费…………………………………………5.1\n 被保险人可以享受本合同提供的保障……………………………………………………………1.3\n 您有获取保单红利以及决定红利领取方式的权利………………………………………………1.4\n 您有保单贷款的权利………………………………………………………………………………6.2\n 您有选择保险费自动垫交的权利…………………………………………………………………6.3\n 您有选择减额交清的权利…………………………………………………………………………6.4\n 您有退保的权利……………………………………………………………………………………5.2",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "product_bundle_rules",
+          "display_name": "产品搭配规则",
+          "locator": "pdf:平安盛世金越（尊享版26）终身寿险（分红型）等险种投保规则_FINAL.pdf#page=1",
+          "quote": "附件 35：\n平安盛世金越（尊享版 26）终身寿险（分红型）\n险种投保规则\n【说明：本规则仅适用于《平安盛世金越（尊享版 26）终身寿险（分红型）》（1837），简称：金尊分红 26；《未\n涉及之内容以《个人寿险核保规则(2025 年)》规定为准】\n1. 销售渠道：个险（A01）；\n2. 交费年期：趸交、3 年、6 年、10 年、15 年、20 年交；\n3. 交费方式：趸交、年交；\n4. 投保年龄：\n交费年期\n单被保险人 双被保险人\n男 女 男 女\n趸交 0-67 岁 0-71 岁 0-67 岁 0-70 岁\n3 年交 0-66 岁 0-69 岁 0-66 岁 0-69 岁\n6 年交 0-65 岁 0-68 岁 0-65 岁 0-68 岁\n10 年交 0-63 岁 0-66 岁 0-63 岁 0-65 岁\n15 年交 0-60 岁 0-64 岁 0-60 岁 0-60 岁\n20 年交 0-59 岁 0-60 岁 0-55 岁 0-55 岁\n5. 保险期间：终身；\n6. 最低保费：\n 趸交：100 万元；\n 3 年交：2 万元；\n 6 年、10 年、15 年、20 年交：0.8 万元；\n7、险种组合规则：\n 金尊分红 26 可单独投保，也可组合招财宝 26 投保；",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "coverage_increase_rules",
+          "display_name": "加保规则",
+          "locator": "pdf:保险条款.pdf#page=2",
+          "quote": "我们不接受增加基本保险金额的申请。",
+          "assertion": "Keep the explicit refusal as a rule; do not erase it as unknown."
+        }
+      ]
+    },
+    {
+      "product_id": "1824",
+      "product_version_id": "1824-1",
+      "source_manifest_sha256": "017ab28cead808c5046f8b61da3b864b4fd81997aa970281f03e2887b15133ba",
+      "required_fields": [
+        {
+          "field_id": "entry_age_range",
+          "display_name": "投保年龄",
+          "locator": "pdf:产品说明书.pdf#page=4",
+          "quote": "投保范围\n0周岁（须出生满28日）-75周岁，且须符合投保当时我们的规定。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "purchase_limitations",
+          "display_name": "购买限制",
+          "locator": "pdf:保险条款.pdf#page=8",
+          "quote": "7.3 投保范围 本合同接受的被保险人的投保年龄范围为 0 周岁（须出生满 28 日）至 75\n周岁，且须符合投保当时我们的规定。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_payment_term",
+          "display_name": "缴费期限",
+          "locator": "pdf:费率表.pdf#page=1",
+          "quote": "《平安盛世金越（尊享版26）终身寿险》年交费率表\n（每万元基本保险金额）\n男性\n单位：人民币元\n                交费期间   \n投保年龄 趸交 3年 6年 10年 15年 20年",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_payment_frequency",
+          "display_name": "缴费方式",
+          "locator": "pdf:产品说明书.pdf#page=5",
+          "quote": "交费方式\n合同保险费的交费方式由您与我们约定并在保险单上载明。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "premium_grace_period",
+          "display_name": "宽限期",
+          "locator": "pdf:产品说明书.pdf#page=5",
+          "quote": "宽限期\n除另有约定外，分期支付保险费的，您支付首期保险费后，如果您到期未支付保险费，\n自保险费约定支付日的次日零时起60日为宽限期。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "coverage_responsibilities",
+          "display_name": "保险责任",
+          "locator": "pdf:产品说明书.pdf#page=1",
+          "quote": "1、保险责任\n 身故保险金：\n被保险人于 18周岁之前（不含 18周岁）身故的，我们按下列两者的较大值给付身故保\n险金，合同终止：\n（1）合同的所交保险费；\n（2）被保险人身故时合同的现金价值。\n被保险人于18周岁之后（含18周岁）身故且身故时交费期间未届满,我们按下列两者的\n较大值给付身故保险金，合同终止：\n（1）合同的所交保险费的一定比例①；\n（2）被保险人身故当时合同的现金价值。\n被保险人于 18周岁之后（含 18 周岁）身故且身故时交费期间已届满，我们按下列三者\n的最大值给付身故保险金，合同终止：\n（1）合同的所交保险费的一定比例①；\n（2）当年度保额②；\n（3）被保险人身故当时合同的现金价值。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "exclusions",
+          "display_name": "责任免除",
+          "locator": "pdf:产品说明书.pdf#page=2",
+          "quote": "责任免除\n因下列情形之一导致被保险人身故的，我们不承担给付身故保险金的责任：\n1.投保人对被保险人的故意杀害、故意伤害；\n2.被保险人故意犯罪或者抗拒依法采取的刑事强制措施；\n3.被保险人自合同成立或者合同效力恢复之日起2年内自杀，但被保险人自杀时为无民\n事行为能力人的除外；\n4.被保险人服用、吸食或注射毒品；\n5.被保险人酒后驾驶机动车；\n6.战争、军事冲突、暴乱或武装叛乱；\n7.核爆炸、核辐射或核污染。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "claim_application_deadline_and_documents",
+          "display_name": "理赔申请时效与申请材料",
+          "locator": "pdf:产品说明书.pdf#page=3",
+          "quote": "保险事故通知\n您、被保险人或受益人知道保险事故发生后应当在10日内通知我们。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "policyholder_rights",
+          "display_name": "保单权益",
+          "locator": "pdf:保险条款.pdf#page=1",
+          "quote": "您拥有的重要权益\n 犹豫期为20日，犹豫期内您可以要求全额退还保险费…………………………………………5.1\n 被保险人可以享受本合同提供的保障……………………………………………………………1.2\n 您有保单贷款的权利………………………………………………………………………………6.2\n 您有选择保险费自动垫交的权利…………………………………………………………………6.3\n 您有选择减额交清的权利…………………………………………………………………………6.4\n 您有退保的权利……………………………………………………………………………………5.2",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        },
+        {
+          "field_id": "product_bundle_rules",
+          "display_name": "产品搭配规则",
+          "locator": "pdf:平安盛世金越（尊享版26）终身寿险等险种保全规则_FINAL.pdf#page=1",
+          "quote": "1.1 E 生保续保版（1056）不可在保全新增。\n1.2 新增其他附加险需符合投保规则要求。",
+          "assertion": "A material-backed value must remain present; complete clause accuracy is not scored here."
+        }
+      ]
+    }
+  ]
+}

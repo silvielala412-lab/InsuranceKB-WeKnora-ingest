@@ -219,6 +219,24 @@ def _evidence_supports(item: str, quote: str) -> bool:
     return bool(tokens) and sum(token in right for token in tokens) >= min(2, len(tokens))
 
 
+def _has_unsupported_shortcut(
+    value: CandidateValue | None,
+    evidence_quotes: Sequence[str],
+    markers: Sequence[str],
+) -> bool:
+    """Reject generated omissions, while preserving source-authored cross references."""
+    quotes = tuple(_normalized(quote) for quote in evidence_quotes)
+    for item in _items(value):
+        if not any(marker in item for marker in markers):
+            continue
+        # A pointer alone still cannot stand in for the requested clause body.
+        if re.match(r"^(?:责任免除|保险责任|疾病定义)?[：:\s]*详见", item):
+            return True
+        if not any(_normalized(item) in quote for quote in quotes):
+            return True
+    return False
+
+
 def _audit_atomic(
     field_id: str,
     value: CandidateValue | None,
@@ -228,14 +246,23 @@ def _audit_atomic(
     supported = sum(
         any(_evidence_supports(item, quote) for quote in evidence_quotes) for item in items
     )
-    if any(marker in str(value) for marker in ("等责任", "等情形", "详见", "包括但不限于")):
+    if _has_unsupported_shortcut(
+        value, evidence_quotes, ("等责任", "等情形", "详见", "包括但不限于")
+    ):
         return M156FieldDecision(
             accepted=False,
             reason="ATOMIC_VALUE_CONTAINS_SHORTCUT",
             atomic_item_count=len(items),
             supported_item_count=supported,
         )
-    if len(evidence_quotes) < len(items) or supported < len(items):
+    # One verified paragraph can contain several complete numbered facts.
+    # Fewer quotes are safe only when every fact is a literal quoted span;
+    # the looser semantic matcher alone must not bypass this guard.
+    all_literal = bool(items) and all(
+        any(_normalized(item) in _normalized(quote) for quote in evidence_quotes)
+        for item in items
+    )
+    if (len(evidence_quotes) < len(items) and not all_literal) or supported < len(items):
         return M156FieldDecision(
             accepted=False,
             reason="ATOMIC_EVIDENCE_COUNT_MISMATCH",

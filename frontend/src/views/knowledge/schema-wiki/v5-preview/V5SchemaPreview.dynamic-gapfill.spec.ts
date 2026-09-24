@@ -54,6 +54,7 @@ describe('V5SchemaPreview dynamic field actions', () => {
     } as V5PreviewClient
     const wrapper = mount(V5SchemaPreview, { props: { client } })
     await flushPromises()
+    expect(wrapper.get('[data-testid="v5-completeness-notice"]').text()).toContain('已有数据不代表全部抽全')
 
     const unknownField = run.products[0]?.preview?.fields.find(field => field.state === 'unknown')
     const presentField = run.products[0]?.preview?.fields.find(field => field.state === 'present')

@@ -218,6 +218,7 @@ def audit_m160_candidate(
     evidence_quotes: tuple[str, ...] | list[str],
     candidate_text: str,
     product_display_name: str,
+    evidence_locators: Sequence[str] = (),
 ) -> M156FieldDecision:
     if field_id in BUSINESS_PRIORITY_FIELD_IDS and field_id != "waiting_period":
         return audit_business_priority_candidate(
@@ -225,6 +226,7 @@ def audit_m160_candidate(
             proposed_value=proposed_value,
             evidence_quotes=evidence_quotes,
             candidate_text=candidate_text,
+            evidence_locators=evidence_locators,
         )
     if field_id != "waiting_period":
         return audit_m158_candidate(
@@ -302,6 +304,7 @@ def admit_m160_evidence_subset(
         evidence_quotes=tuple(item.quote for item in verified),
         candidate_text=candidate_text,
         product_display_name=product_display_name,
+        evidence_locators=tuple(item.locator for item in verified),
     )
     if result.state != "present" or not verified or not decision.accepted:
         return None, decision
@@ -319,6 +322,8 @@ def choose_m160_replacement(
     proposed_evidence_quotes: Sequence[str],
     candidate_text: str,
     product_display_name: str,
+    baseline_evidence_locators: Sequence[str] = (),
+    proposed_evidence_locators: Sequence[str] = (),
 ) -> M156ReplacementDecision:
     """M158 replacement policy with the stricter waiting-period audit."""
 
@@ -328,6 +333,7 @@ def choose_m160_replacement(
         evidence_quotes=tuple(proposed_evidence_quotes),
         candidate_text=candidate_text,
         product_display_name=product_display_name,
+        evidence_locators=proposed_evidence_locators,
     )
     if field_id not in BUSINESS_PRIORITY_FIELD_IDS:
         return choose_m158_replacement(
@@ -349,6 +355,7 @@ def choose_m160_replacement(
             evidence_quotes=tuple(baseline_evidence_quotes),
             candidate_text=candidate_text,
             product_display_name=product_display_name,
+            evidence_locators=baseline_evidence_locators,
         )
 
     if proposed_state != "present" or not proposed.accepted:
@@ -417,7 +424,9 @@ def m160_repair_hint(kind: str) -> str:
             "Mission 160 long-field shard. Exhaustively extract every material-supported "
             "atomic item for this product and field. Preserve conditions, limits, exceptions "
             "and applicability; number every item and attach a short same-page verbatim "
-            "Evidence. Never use 等、详见、"
+            "Evidence. For exclusions, every atomic item needs its own short policy-terms "
+            "quote (at most 600 characters); never cite an entire page as one Evidence. "
+            "Never use 等、详见、"
             "包括但不限于 or a directory reference, and never merge another contract."
         )
     return (
@@ -426,12 +435,18 @@ def m160_repair_hint(kind: str) -> str:
         "a brochure summary never replaces more detailed policy wording. For special coverage "
         "tags preserve the exact positive/negative direction and name the subject. For external "
         "drug, reimbursable scope, claim documents and value-added services keep every stated "
-        "component, item, condition, limit and applicable responsibility. "
+        "component, item, condition, limit and applicable responsibility. External-drug facts "
+        "must include direct policy-terms Evidence when policy terms are supplied. Split claim "
+        "timing into accident notice, customer application/limitation, insurer determination and "
+        "benefit payment; never label insurer processing time as customer application time. "
         "For waiting_period value use exactly these labelled lines when supported: "
         "等待期时长、起算点、适用责任、意外例外、等待期内后果、特殊例外. The duration alone "
         "is incomplete. Keep every formal payment term/frequency option and separate the two "
         "fields; exclude illustration examples. For rights, responsibilities and exclusions "
-        "keep current-product scope and atomic conditions. Every populated waiting component "
+        "keep current-product scope and atomic conditions. "
+        "For policy rights preserve stated process, required documents, processing deadline and "
+        "refund/payment content instead of returning labels only. Every populated waiting "
+        "component "
         "and every atomic item needs direct same-page Evidence; never infer."
     )
 

@@ -14,6 +14,7 @@ from .m156_quality import (
     M156FieldDecision,
     M156ReplacementDecision,
     _evidence_supports,
+    _has_unsupported_shortcut,
     _items,
     _normalized,
     audit_m156_candidate,
@@ -98,7 +99,7 @@ def _audit_atomic_m157(
     supported = sum(
         any(_evidence_supports(item, quote) for quote in evidence_quotes) for item in items
     )
-    if any(marker in str(value) for marker in _SHORTCUT_MARKERS):
+    if _has_unsupported_shortcut(value, evidence_quotes, _SHORTCUT_MARKERS):
         return M156FieldDecision(
             accepted=False,
             reason="ATOMIC_VALUE_CONTAINS_SHORTCUT",

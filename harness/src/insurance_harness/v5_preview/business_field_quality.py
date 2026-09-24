@@ -4,13 +4,16 @@ import re
 from collections.abc import Mapping, Sequence
 
 from .contracts import CandidateValue
-from .field_profiles import BUSINESS_PRIORITY_FIELD_IDS
+from .field_profiles import BUSINESS_PRIORITY_FIELD_IDS, field_extraction_profile
 from .m156_quality import (
     M156FieldDecision,
+    _evidence_supports,
+    _has_unsupported_shortcut,
     _items,
     _normalized,
     audit_m156_candidate,
 )
+from .source_evidence import strip_defined_footnote_references
 
 _SHORTCUT_MARKERS = ("等责任", "等情形", "等费用", "等服务", "详见", "包括但不限于")
 _POSITIVE_TAG_MARKERS = ("可赔", "承保", "可保", "保障")
@@ -37,9 +40,30 @@ _COMPONENTS: Mapping[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("目录范围", ("社会医疗保险目录", "基本医疗保险目录", "目录外")),
         ("合理必要及实际发生", ("合理且必要", "实际支出", "实际发生")),
     ),
+    "reimbursement_rate_rules": (
+        ("给付比例", ("给付比例", "赔付比例", "报销比例", "%")),
+        (
+            "社会医疗保险结算条件",
+            ("社会医疗保险结算", "基本医疗保险结算", "医保结算"),
+        ),
+        (
+            "未使用社会医疗保险结算",
+            ("未使用社会医疗保险", "未使用基本医疗保险", "未经医保结算"),
+        ),
+        ("预审核条件", ("预审核", "事前审核")),
+        ("医保目录条件", ("医保目录内", "医保目录外")),
+    ),
     "claim_application_deadline_and_documents": (
-        ("保险事故通知", ("事故通知", "通知本公司", "通知保险人")),
-        ("申请或诉讼时效", ("诉讼时效", "申请时限", "请求给付保险金")),
+        ("保险事故通知", ("事故通知", "通知本公司", "通知保险人", "通知我们")),
+        ("申请或诉讼时效", ("诉讼时效", "申请时限")),
+        (
+            "保险公司核定时效",
+            ("保险公司核定时效", "作出核定", "核定；", "核定。"),
+        ),
+        (
+            "保险金给付时效",
+            ("保险金给付时效", "履行给付保险金义务", "达成给付协议"),
+        ),
         ("保险金申请书", ("保险金申请书", "理赔申请书")),
         ("身份或关系证明", ("身份证明", "有效身份证件", "关系证明", "受益人证明")),
         ("诊断病历或鉴定", ("诊断证明", "病历", "病理", "鉴定书", "伤残鉴定")),
@@ -58,6 +82,17 @@ _COMPONENTS: Mapping[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("康复护理", ("康复护理", "康复指导")),
     ),
 }
+
+_DOCUMENT_NAME_PATTERNS = (
+    re.compile(r"pdf:(?P<name>[^#\]\r\n]+)#page=\d+"),
+    re.compile(r"文档：(?P<name>[^｜】\r\n]+)"),
+)
+_CLAIM_APPLICATION_LABELS = ("申请时效", "理赔时效")
+_INSURER_PROCESSING_MARKERS = ("作出核定", "核定", "履行给付", "达成给付协议")
+_POLICY_RIGHT_DOCUMENT_MARKERS = ("解除合同通知书", "保险合同", "有效身份证件")
+_POLICY_RIGHT_DEADLINE = re.compile(
+    r"(?:收到|自).{0,40}?(?P<days>\d+)\s*日内.{0,40}?(?:退还|返还|给付)"
+)
 
 
 def _tag_subject(item: str) -> str:
@@ -117,6 +152,17 @@ def _component_missing(
     material: str,
 ) -> tuple[str, ...]:
     proposed = _normalized("，".join(_items(value)))
+    if field_id == "claim_application_deadline_and_documents":
+        # Health questions in underwriting documents are not claim documents.
+        # Keep all contract pages, including continuation pages and footnotes.
+        blocks = re.split(r"(?=【文档：|\[pdf:)", material)
+        material = "\n".join(
+            block for block in blocks
+            if not any(
+                term in name for name in _document_names(block)
+                for term in ("投保规则", "保全规则", "健康告知")
+            )
+        )
     source = _normalized(material)
     return tuple(
         label
@@ -139,6 +185,100 @@ def _component_evidence_missing(
         if any(_normalized(alias) in proposed for alias in aliases)
         and not any(_normalized(alias) in evidence for alias in aliases)
     )
+
+
+def _document_names(text: str) -> tuple[str, ...]:
+    names: list[str] = []
+    for pattern in _DOCUMENT_NAME_PATTERNS:
+        names.extend(match.group("name").strip() for match in pattern.finditer(text))
+    return tuple(dict.fromkeys(name for name in names if name))
+
+
+def _contains_document_term(document_names: Sequence[str], terms: Sequence[str]) -> bool:
+    return any(
+        _normalized(term) in _normalized(document_name)
+        for document_name in document_names
+        for term in terms
+    )
+
+
+def _missing_authoritative_source(
+    field_id: str,
+    *,
+    candidate_text: str,
+    evidence_locators: Sequence[str],
+) -> tuple[str, ...]:
+    profile = field_extraction_profile(field_id)
+    if profile is None or not profile.required_evidence_document_terms:
+        return ()
+    required = profile.required_evidence_document_terms
+    available = _contains_document_term(_document_names(candidate_text), required)
+    if not available or not evidence_locators:
+        return ()
+    if _contains_document_term(_document_names("\n".join(evidence_locators)), required):
+        return ()
+    return required
+
+
+def _authoritative_item_evidence_missing(
+    field_id: str,
+    value: CandidateValue | None,
+    evidence_quotes: Sequence[str],
+    evidence_locators: Sequence[str],
+    candidate_text: str = "",
+) -> tuple[str, ...]:
+    profile = field_extraction_profile(field_id)
+    if (
+        profile is None
+        or not profile.required_evidence_document_terms
+        or not evidence_locators
+    ):
+        return ()
+    authoritative_quotes = tuple(
+        strip_defined_footnote_references(_normalized(quote), candidate_text)
+        for quote, locator in zip(evidence_quotes, evidence_locators, strict=False)
+        if _contains_document_term(
+            _document_names(locator),
+            profile.required_evidence_document_terms,
+        )
+    )
+    return tuple(
+        item
+        for item in _items(value)
+        if not any(
+            _evidence_supports(
+                strip_defined_footnote_references(_normalized(item), candidate_text), quote
+            )
+            for quote in authoritative_quotes
+        )
+    )
+
+
+def _claim_deadline_semantically_conflated(value: CandidateValue | None) -> bool:
+    text = "\n".join(_items(value))
+    return any(
+        any(label in segment for label in _CLAIM_APPLICATION_LABELS)
+        and any(marker in segment for marker in _INSURER_PROCESSING_MARKERS)
+        for segment in re.split(r"[。；;\n]+", text)
+    )
+
+
+def _policy_right_details_missing(
+    value: CandidateValue | None,
+    evidence_quotes: Sequence[str],
+) -> tuple[str, ...]:
+    proposed = _normalized("，".join(_items(value)))
+    evidence = _normalized("\n".join(evidence_quotes))
+    missing = [
+        marker
+        for marker in _POLICY_RIGHT_DOCUMENT_MARKERS
+        if _normalized(marker) in evidence and _normalized(marker) not in proposed
+    ]
+    for match in _POLICY_RIGHT_DEADLINE.finditer(evidence):
+        duration = f"{match.group('days')}日"
+        if duration not in proposed:
+            missing.append(duration)
+    return tuple(dict.fromkeys(missing))
 
 
 def _tag_supported(item: str, quotes: Sequence[str]) -> bool:
@@ -192,19 +332,69 @@ def audit_business_priority_candidate(
     proposed_value: CandidateValue | None,
     evidence_quotes: Sequence[str],
     candidate_text: str,
+    evidence_locators: Sequence[str] = (),
 ) -> M156FieldDecision:
     if field_id not in BUSINESS_PRIORITY_FIELD_IDS or field_id == "waiting_period":
         raise ValueError("BUSINESS_PRIORITY_FIELD_INVALID")
+    missing_source = _missing_authoritative_source(
+        field_id,
+        candidate_text=candidate_text,
+        evidence_locators=evidence_locators,
+    )
+    if missing_source:
+        return M156FieldDecision(
+            accepted=False,
+            reason="BUSINESS_FIELD_AUTHORITATIVE_SOURCE_MISSING",
+            atomic_item_count=len(_items(proposed_value)),
+            supported_item_count=0,
+            missing_components=missing_source,
+        )
     if field_id in {"exclusions", "policyholder_rights"}:
-        return audit_m156_candidate(
+        decision = audit_m156_candidate(
             field_id=field_id,
             proposed_value=proposed_value,
             evidence_quotes=evidence_quotes,
             candidate_text=candidate_text,
         )
+        if not decision.accepted:
+            return decision
+        authoritative_missing = (
+            _authoritative_item_evidence_missing(
+                field_id,
+                proposed_value,
+                evidence_quotes,
+                evidence_locators,
+                candidate_text,
+            )
+            if field_id == "exclusions"
+            else ()
+        )
+        if authoritative_missing:
+            return M156FieldDecision(
+                accepted=False,
+                reason="BUSINESS_FIELD_AUTHORITATIVE_ITEM_EVIDENCE_MISSING",
+                atomic_item_count=decision.atomic_item_count,
+                supported_item_count=decision.atomic_item_count
+                - len(authoritative_missing),
+                missing_components=authoritative_missing,
+            )
+        if field_id == "policyholder_rights":
+            missing_details = _policy_right_details_missing(
+                proposed_value,
+                evidence_quotes,
+            )
+            if missing_details:
+                return M156FieldDecision(
+                    accepted=False,
+                    reason="POLICY_RIGHT_DETAILS_INCOMPLETE",
+                    atomic_item_count=decision.atomic_item_count,
+                    supported_item_count=decision.supported_item_count,
+                    missing_components=missing_details,
+                )
+        return decision
 
     items = _items(proposed_value)
-    if any(marker in str(proposed_value) for marker in _SHORTCUT_MARKERS):
+    if _has_unsupported_shortcut(proposed_value, evidence_quotes, _SHORTCUT_MARKERS):
         return M156FieldDecision(
             accepted=False,
             reason="BUSINESS_FIELD_CONTAINS_SHORTCUT",
@@ -222,6 +412,17 @@ def audit_business_priority_candidate(
                 supported_item_count=len(items) - len(unsupported),
                 missing_components=unsupported,
             )
+    if (
+        field_id == "claim_application_deadline_and_documents"
+        and _claim_deadline_semantically_conflated(proposed_value)
+    ):
+        return M156FieldDecision(
+            accepted=False,
+            reason="CLAIM_DEADLINE_SEMANTIC_CONFLATION",
+            atomic_item_count=len(items),
+            supported_item_count=0,
+            missing_components=("客户申请时效", "保险公司核定/给付时效"),
+        )
     missing = _component_missing(field_id, proposed_value, candidate_text)
     if missing:
         return M156FieldDecision(

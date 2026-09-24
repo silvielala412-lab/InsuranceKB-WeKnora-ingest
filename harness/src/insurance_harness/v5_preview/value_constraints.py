@@ -114,7 +114,10 @@ def _single_normalize(value: str, constraint: ValueConstraint) -> str:
     exact = _allowed_hit(raw, constraint.allowed_values)
     if exact is not None:
         return exact
-    exact_hits = tuple(option for option in constraint.allowed_values if option in raw)
+    exact_hits = tuple(
+        option for option in constraint.allowed_values
+        if option not in {"是", "否", "有", "无"} and option in raw
+    )
     if len(exact_hits) == 1 and len(raw) <= max(80, len(exact_hits[0]) * 4):
         return exact_hits[0]
     if set(constraint.allowed_values) >= {"是", "否"}:
@@ -127,7 +130,15 @@ def _single_normalize(value: str, constraint: ValueConstraint) -> str:
     # Product-specific options such as "支持满期给付、否" use the same
     # conservative polarity rule while retaining ambiguous prose verbatim.
     negative = next((option for option in constraint.allowed_values if option == "否"), None)
-    if negative is not None and any(token in raw for token in _YES_NO_NEGATIVE):
+    polarity_text = raw
+    for marker in _YES_NO_NEGATIVE:
+        polarity_text = polarity_text.replace(marker, "")
+    if (
+        negative is not None
+        and len(raw) <= 80
+        and any(token in raw for token in _YES_NO_NEGATIVE)
+        and not any(token in polarity_text for token in _YES_NO_POSITIVE)
+    ):
         positive_hits = tuple(
             option
             for option in constraint.allowed_values
