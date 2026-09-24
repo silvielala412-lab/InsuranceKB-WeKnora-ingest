@@ -47,6 +47,7 @@ const searchQuery = ref('')
 const searchLoading = ref(false)
 const searchError = ref('')
 const searchResult = ref<V5SearchResult | null>(null)
+const activeTab = ref<'preview' | 'qa'>('preview')
 
 const form = reactive({
   mode: 'fixture' as 'fixture' | 'llm',
@@ -179,6 +180,7 @@ function openSearchMatch(match: V5SearchMatch): void {
   if (!preview) return
   selectProduct(preview)
   selectedFieldId.value = match.field_id
+  activeTab.value = 'preview'
 }
 
 async function submitSearch(): Promise<void> {
@@ -363,6 +365,31 @@ onMounted(loadCatalog)
       </button>
     </header>
 
+    <nav class="v5-preview__tabs" aria-label="V5 工作区">
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'preview'"
+        :class="{ active: activeTab === 'preview' }"
+        data-testid="v5-preview-tab"
+        @click="activeTab = 'preview'"
+      >
+        抽取预览
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === 'qa'"
+        :class="{ active: activeTab === 'qa' }"
+        data-testid="v5-search-tab"
+        @click="activeTab = 'qa'"
+      >
+        搜索问答
+      </button>
+    </nav>
+
+    <div v-if="activeTab === 'preview'" class="v5-preview__tab-panel">
+
     <form class="v5-preview__form" @submit.prevent="runPreview">
       <label>
         <span>险种 Schema</span>
@@ -428,74 +455,6 @@ onMounted(loadCatalog)
     </section>
 
     <p v-if="errorMessage" class="v5-preview__error" role="alert">{{ errorMessage }}</p>
-
-    <section v-if="previews.length" class="v5-preview__search" data-testid="v5-search">
-      <header class="v5-preview__search-header">
-        <div>
-          <h3>产品知识搜索</h3>
-          <p>搜索当前已加载产品的字段值和 Evidence；Key 只在后端使用。</p>
-        </div>
-        <span v-if="searchResult" class="v5-preview__search-provider" :data-provider="searchResult.provider">
-          {{ searchResult.provider === 'bailian' ? `百炼 · ${searchResult.model ?? ''}` : '本地字段检索' }}
-        </span>
-      </header>
-
-      <form class="v5-preview__search-form" data-testid="v5-search-form" @submit.prevent="submitSearch">
-        <input
-          v-model.trim="searchQuery"
-          type="search"
-          placeholder="例如：等待期、e生保、宽限期、保什么"
-          aria-label="搜索产品知识"
-        />
-        <button type="submit" :disabled="searchLoading">
-          <t-icon name="search" />
-          {{ searchLoading ? '搜索中' : '搜索' }}
-        </button>
-      </form>
-      <p v-if="searchError" class="v5-preview__search-error" role="alert">{{ searchError }}</p>
-
-      <article v-if="searchResult" class="v5-preview__search-result">
-        <p class="v5-preview__search-answer">{{ searchResult.answer }}</p>
-        <p v-if="searchResult.provider_error" class="v5-preview__search-fallback">
-          百炼暂不可用，已展示本地匹配结果。
-        </p>
-        <div v-if="searchResult.matches.length" class="v5-preview__search-table-wrap">
-          <table class="v5-preview__search-table">
-            <thead>
-              <tr>
-                <th scope="col">产品</th>
-                <th scope="col">字段</th>
-                <th scope="col">字段值</th>
-                <th scope="col">Evidence</th>
-                <th scope="col">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="match in searchResult.matches" :key="`${match.product_version_id}:${match.field_id}`">
-                <td>
-                  <strong>{{ match.product_display_name }}</strong>
-                  <small>{{ match.insurance_class }} · {{ match.product_id }}</small>
-                </td>
-                <td>
-                  <strong>{{ match.field_display_name }}</strong>
-                  <small>{{ match.field_id }}</small>
-                </td>
-                <td class="v5-preview__search-value">{{ formatValue(match.value) }}</td>
-                <td>
-                  <span>{{ match.evidence.length }} 条</span>
-                  <small v-if="match.evidence[0]">{{ match.evidence[0].quote }}</small>
-                </td>
-                <td>
-                  <button type="button" class="v5-preview__search-open" @click="openSearchMatch(match)">
-                    查看字段
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-    </section>
 
     <section v-if="concepts.length" class="v5-preview__concepts" data-testid="v5-concept-index">
       <header class="v5-preview__concepts-header">
@@ -743,6 +702,82 @@ onMounted(loadCatalog)
         </button>
       </div>
     </div>
+
+    </div>
+
+    <section v-else class="v5-preview__qa-tab" data-testid="v5-qa-tab">
+      <section v-if="previews.length" class="v5-preview__search" data-testid="v5-search">
+        <header class="v5-preview__search-header">
+          <div>
+            <h3>产品知识搜索问答</h3>
+            <p>针对当前已加载产品提问，答案只基于字段值和 Evidence；Key 只在后端使用。</p>
+          </div>
+          <span v-if="searchResult" class="v5-preview__search-provider" :data-provider="searchResult.provider">
+            {{ searchResult.provider === 'bailian' ? `百炼 · ${searchResult.model ?? ''}` : '本地字段检索' }}
+          </span>
+        </header>
+
+        <form class="v5-preview__search-form" data-testid="v5-search-form" @submit.prevent="submitSearch">
+          <input
+            v-model.trim="searchQuery"
+            type="search"
+            placeholder="例如：e生保有哪些等待期规则？宽限期是多少？"
+            aria-label="搜索产品知识"
+          />
+          <button type="submit" :disabled="searchLoading">
+            <t-icon name="search" />
+            {{ searchLoading ? '回答中' : '提问' }}
+          </button>
+        </form>
+        <p v-if="searchError" class="v5-preview__search-error" role="alert">{{ searchError }}</p>
+
+        <article v-if="searchResult" class="v5-preview__search-result">
+          <p class="v5-preview__search-answer">{{ searchResult.answer }}</p>
+          <p v-if="searchResult.provider_error" class="v5-preview__search-fallback">
+            百炼暂不可用，已展示本地匹配结果。
+          </p>
+          <div v-if="searchResult.matches.length" class="v5-preview__search-table-wrap">
+            <table class="v5-preview__search-table">
+              <thead>
+                <tr>
+                  <th scope="col">产品</th>
+                  <th scope="col">字段</th>
+                  <th scope="col">字段值</th>
+                  <th scope="col">Evidence</th>
+                  <th scope="col">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="match in searchResult.matches" :key="`${match.product_version_id}:${match.field_id}`">
+                  <td>
+                    <strong>{{ match.product_display_name }}</strong>
+                    <small>{{ match.insurance_class }} · {{ match.product_id }}</small>
+                  </td>
+                  <td>
+                    <strong>{{ match.field_display_name }}</strong>
+                    <small>{{ match.field_id }}</small>
+                  </td>
+                  <td class="v5-preview__search-value">{{ formatValue(match.value) }}</td>
+                  <td>
+                    <span>{{ match.evidence.length }} 条</span>
+                    <small v-if="match.evidence[0]">{{ match.evidence[0].quote }}</small>
+                  </td>
+                  <td>
+                    <button type="button" class="v5-preview__search-open" @click="openSearchMatch(match)">
+                      查看字段
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+      <div v-else class="v5-preview__empty-workspace">
+        <p v-if="loadingCatalog">正在加载产品结果…</p>
+        <p v-else>当前没有可搜索的产品结果。</p>
+      </div>
+    </section>
   </section>
 </template>
 
@@ -761,6 +796,11 @@ onMounted(loadCatalog)
 .v5-preview__clear { width: 36px; border: 1px solid var(--td-component-border); background: transparent; color: var(--td-text-color-secondary); }
 .v5-preview__run { display: inline-flex; align-items: center; gap: 6px; padding: 0 14px; border: 1px solid var(--td-brand-color); background: var(--td-brand-color); color: #fff; }
 .v5-preview__clear:disabled, .v5-preview__run:disabled { cursor: not-allowed; opacity: .45; }
+.v5-preview__tabs { display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-container); }
+.v5-preview__tabs button { position: relative; padding: 11px 14px 10px; border: 0; background: transparent; color: var(--td-text-color-secondary); cursor: pointer; font-size: 13px; }
+.v5-preview__tabs button.active { color: var(--td-brand-color); font-weight: 600; }
+.v5-preview__tabs button.active::after { position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; background: var(--td-brand-color); content: ''; }
+.v5-preview__tab-panel, .v5-preview__qa-tab { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
 .v5-preview__form { display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(4, minmax(140px, 1fr)); gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-secondarycontainer); }
 .v5-preview__form label { display: grid; gap: 5px; min-width: 0; }
 .v5-preview__form label > span { color: var(--td-text-color-secondary); font-size: 12px; }
@@ -845,6 +885,7 @@ onMounted(loadCatalog)
 .v5-preview__schema-grid button.active { background: var(--td-brand-color-light); color: var(--td-brand-color); }
 .v5-preview__schema-grid strong { color: var(--td-text-color-placeholder); font-size: 18px; }
 .v5-preview__search { display: grid; gap: 10px; padding: 14px 20px 16px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-secondarycontainer); }
+.v5-preview__qa-tab > .v5-preview__search { flex: none; }
 .v5-preview__search-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .v5-preview__search-header h3 { margin: 0; font-size: 16px; }
 .v5-preview__search-header p { margin: 4px 0 0; color: var(--td-text-color-secondary); font-size: 12px; }

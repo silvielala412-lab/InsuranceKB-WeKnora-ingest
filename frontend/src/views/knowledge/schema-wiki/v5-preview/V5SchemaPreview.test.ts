@@ -112,6 +112,7 @@ describe('V5SchemaPreview dynamic product rendering', () => {
     expect(wrapper.text()).toContain('事实 Fact')
     expect(wrapper.text()).toContain('产品名称：安心医疗险')
 
+    await wrapper.get('[data-testid="v5-search-tab"]').trigger('click')
     await wrapper.get('[aria-label="搜索产品知识"]').setValue('险种名称')
     await wrapper.get('[data-testid="v5-search-form"]').trigger('submit')
     await flushPromises()
