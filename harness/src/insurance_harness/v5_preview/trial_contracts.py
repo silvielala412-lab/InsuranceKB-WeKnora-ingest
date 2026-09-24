@@ -14,7 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .contracts import V5CandidatePreview
 from .material_support import MaterialSupportDecision, MaterialSupportMetrics
 
-MAX_MICROBATCH_PROVIDER_CALLS: Final = 32
+# The local preview can combine several independently sealed product runs. The
+# envelope therefore needs room for the cumulative receipts while each runner
+# still applies its own per-run budget.
+MAX_MICROBATCH_PROVIDER_CALLS: Final = 64
 MAX_MICROBATCH_PRODUCT_ATTEMPTS: Final = 12
 _REVIEW_REQUIRED_ERRORS: Final[frozenset[str]] = frozenset(
     {"EVIDENCE_REVIEW_REQUIRED", "EXTRACTION_GAP_REVIEW_REQUIRED"}
@@ -138,7 +141,11 @@ class V5ProviderTrialRun(_ClosedModel):
     finished_at: Annotated[str, Field(min_length=1)]
     serving_effect: Literal["NONE"]
     review_publish_admission: Literal[False]
-    products: Annotated[tuple[ProviderTrialProduct, ...], Field(min_length=1, max_length=9)]
+    # A provider run is also the local preview serving bundle. Keep the
+    # envelope bounded, while allowing the batch runner to publish the ten
+    # product preview requested by the local workflow (and future small
+    # batches) without splitting the frontend artifact.
+    products: Annotated[tuple[ProviderTrialProduct, ...], Field(min_length=1, max_length=32)]
 
     @model_validator(mode="after")
     def validate_run(self) -> Self:

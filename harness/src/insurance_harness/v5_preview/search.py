@@ -235,8 +235,10 @@ def _llm_answer(
             f"你是保险产品知识检索助手，当前模型是 {completion.model}。"
             "只使用给定的已抽取字段、Evidence 和已加载产品清单回答用户问题，"
             "不得补充材料之外的保险事实。若用户询问你的模型身份，可以直接回答当前模型名；"
-            "如果材料不足以回答其他问题，要明确说明材料中没有依据。只输出 JSON 对象，结构为 "
-            '{"answer":"简洁回答","match_indices":[0]}。'
+            "如果材料不足以回答其他问题，要明确说明材料中没有依据。回答要完整、易读："
+            "优先按产品分组，列出关键数值、条件和限制；有多个命中时用分点或短段落展开，"
+            "并在结尾注明依据不足的部分。只输出 JSON 对象，结构为 "
+            '{"answer":"按材料详细回答","match_indices":[0]}。'
         ),
         user=json.dumps(
             {"query": query, "loaded_products": products, "matches": context},
@@ -256,6 +258,12 @@ def _llm_answer(
         for index in indices
     ):
         raise LlmPluginError("V5_SEARCH_PROVIDER_RESULT_INVALID")
+    # A few OpenAI-compatible Qwen responses can leave a JSON escaping tail in
+    # the answer when the completion is very short. Prefer the deterministic,
+    # evidence-backed answer in that case so the user never sees transport
+    # syntax instead of product facts.
+    if any(marker in answer for marker in ('">', "\\")):
+        return _local_answer(query, matches)
     return answer
 
 
