@@ -131,7 +131,8 @@ const ATTEMPT_KEYS = [
   'response_model',
   'total_tokens',
 ] as const
-const MAX_PROVIDER_RUN_CALLS = 32
+const MAX_PROVIDER_RUN_CALLS = 64
+const MAX_PROVIDER_RUN_PRODUCTS = 32
 
 function invalid(): never {
   throw new Error('V5_PROVIDER_TRIAL_CONTRACT_INVALID')
@@ -373,7 +374,7 @@ export function parseV5ProviderTrialRun(value: unknown): V5ProviderTrialRun {
     || value.review_publish_admission !== false
     || !Array.isArray(value.products)
     || value.products.length < 1
-    || value.products.length > 9
+    || value.products.length > MAX_PROVIDER_RUN_PRODUCTS
   ) invalid()
   const products = Object.freeze(value.products.map(parseProduct))
   const previewCount = products.filter(product => product.preview !== null).length

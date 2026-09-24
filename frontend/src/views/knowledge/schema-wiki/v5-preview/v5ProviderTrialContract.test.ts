@@ -114,10 +114,10 @@ test('provider run admits the bounded Mission 139 nine-product shape', () => {
   assert.equal(run.call_count, 18)
 })
 
-test('provider run admits the Mission 159 32-call microbatch envelope only', () => {
+test('provider run admits the expanded 64-call preview envelope', () => {
   const exact = providerRunFixture()
   const base = exact.products[0]!
-  const attemptCounts = [6, 3, 3, 3, 8, 9]
+  const attemptCounts = [12, 10, 10, 10, 11, 11]
   const products = attemptCounts.map((attemptCount, index) => {
     const productId = `${9500 + index}`
     const productVersionId = `${productId}-1`
@@ -151,20 +151,20 @@ test('provider run admits the Mission 159 32-call microbatch envelope only', () 
     }
   })
 
-  const run = parseV5ProviderTrialRun({ ...exact, call_count: 32, products })
+  const run = parseV5ProviderTrialRun({ ...exact, call_count: 64, products })
   assert.deepEqual(run.products.map(product => product.attempts.length), attemptCounts)
-  assert.equal(run.call_count, 32)
+  assert.equal(run.call_count, 64)
 
-  const thirtyThirdAttempt = {
+  const sixtyFifthAttempt = {
     ...products[0]!.attempts.at(-1)!,
     attempt: products[0]!.attempts.length + 1,
   }
   assert.throws(() => parseV5ProviderTrialRun({
     ...exact,
-    call_count: 33,
+    call_count: 65,
     products: [{
       ...products[0]!,
-      attempts: [...products[0]!.attempts, thirtyThirdAttempt],
+      attempts: [...products[0]!.attempts, sixtyFifthAttempt],
     }, ...products.slice(1)],
   }), { message: 'V5_PROVIDER_TRIAL_CONTRACT_INVALID' })
 })
