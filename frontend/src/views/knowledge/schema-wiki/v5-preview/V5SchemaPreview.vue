@@ -897,7 +897,7 @@ onMounted(loadCatalog)
 .v5-preview__search-form button:disabled { cursor: not-allowed; opacity: .55; }
 .v5-preview__search-error { margin: 0; color: var(--td-error-color-7); font-size: 12px; }
 .v5-preview__search-result { display: grid; gap: 8px; min-width: 0; }
-.v5-preview__search-answer { margin: 0; padding: 9px 11px; border-left: 3px solid var(--td-brand-color); background: var(--td-bg-color-container); color: var(--td-text-color-primary); line-height: 1.55; }
+.v5-preview__search-answer { margin: 0; padding: 9px 11px; border-left: 3px solid var(--td-brand-color); background: var(--td-bg-color-container); color: var(--td-text-color-primary); line-height: 1.55; white-space: pre-wrap; }
 .v5-preview__search-fallback { margin: 0; color: var(--td-warning-color-8); font-size: 11px; }
 .v5-preview__search-table-wrap { max-height: 260px; overflow: auto; }
 .v5-preview__search-table { width: 100%; min-width: 760px; border-collapse: collapse; background: var(--td-bg-color-container); font-size: 12px; }

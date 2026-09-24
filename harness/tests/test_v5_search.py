@@ -113,3 +113,14 @@ def test_search_returns_local_answer_without_match() -> None:
     assert result.provider == "local"
     assert result.matches == ()
     assert "未检索到" in result.answer
+
+
+def test_search_answers_a_natural_question_from_field_matches() -> None:
+    result = search_provider_run(
+        _run(_preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享")),
+        V5SearchRequest(query="e生保的产品简称是什么？"),
+    )
+
+    assert result.provider == "local"
+    assert result.matches
+    assert "e生保尊享" in result.answer

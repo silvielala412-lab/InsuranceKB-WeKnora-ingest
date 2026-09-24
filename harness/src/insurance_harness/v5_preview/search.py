@@ -85,14 +85,27 @@ def _value_text(value: CandidateValue) -> str:
     return str(value)
 
 
-def _query_tokens(query: str) -> tuple[str, ...]:
+def _query_tokens(
+    query: str,
+    provider_run: V5ProviderTrialRun | None = None,
+) -> tuple[str, ...]:
     terms = _QUERY_ALIASES.get(query, (query,))
-    tokens = tuple(
+    tokens = list(
         token.casefold()
         for term in terms
         for token in _TOKEN_RE.findall(term)
     )
-    return tokens or (query.casefold(),)
+    if provider_run is not None:
+        folded_query = query.casefold()
+        for product in provider_run.products:
+            if product.preview is None:
+                continue
+            for field in product.preview.fields:
+                for term in (field.display_name, field.field_id):
+                    normalized = term.casefold()
+                    if len(normalized) >= 2 and normalized in folded_query:
+                        tokens.append(normalized)
+    return tuple(dict.fromkeys(tokens)) or (query.casefold(),)
 
 
 def _score_match(preview: V5CandidatePreview, field: object, query: str, tokens: Sequence[str]) -> int:
@@ -133,7 +146,7 @@ def build_v5_search_matches(
     query: str,
     limit: int,
 ) -> tuple[V5SearchMatch, ...]:
-    tokens = _query_tokens(query)
+    tokens = _query_tokens(query, provider_run)
     ranked: list[tuple[int, int, int, V5SearchMatch]] = []
     for product_ordinal, product in enumerate(provider_run.products):
         preview = product.preview
@@ -179,7 +192,16 @@ def _local_answer(query: str, matches: Sequence[V5SearchMatch]) -> str:
     if not matches:
         return f'当前已加载的产品结果中未检索到与“{query}”直接匹配的字段。'
     products = len({match.product_id for match in matches})
-    return f'检索到 {len(matches)} 条相关字段，涉及 {products} 款产品；结果按字段、产品和 Evidence 的匹配度排序。'
+    details = []
+    for match in matches[:8]:
+        value = _value_text(match.value)
+        if len(value) > 240:
+            value = f"{value[:240]}…"
+        details.append(f"{match.product_display_name}｜{match.field_display_name}：{value}")
+    return (
+        f'基于当前已抽取结果，关于“{query}”命中 {len(matches)} 条字段，涉及 {products} 款产品：\n'
+        + "\n".join(details)
+    )
 
 
 def _llm_answer(
