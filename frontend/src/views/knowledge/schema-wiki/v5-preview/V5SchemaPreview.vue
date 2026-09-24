@@ -20,6 +20,11 @@ import type {
   V5DynamicFieldGapfillResponse,
 } from '../../../../api/schema-wiki/v5/v5DynamicGapfillContract.ts'
 import { parseV5FieldTable } from './v5FieldTable.ts'
+import {
+  buildV5ConceptIndex,
+  type V5Concept,
+  type V5ConceptInstance,
+} from './v5Concepts.ts'
 
 const props = withDefaults(defineProps<{ client?: V5PreviewClient }>(), {
   client: () => createV5PreviewClient(),
@@ -35,6 +40,8 @@ const errorMessage = ref('')
 const dynamicResult = ref<V5DynamicFieldGapfillResponse | null>(null)
 const selectedProductVersionId = ref('')
 const selectedFieldId = ref('')
+const conceptQuery = ref('')
+const selectedConceptId = ref('product_short_name')
 
 const form = reactive({
   mode: 'fixture' as 'fixture' | 'llm',
@@ -58,6 +65,21 @@ const selectedField = computed(() => selectedPreview.value?.fields.find(
 ) ?? selectedPreview.value?.fields[0] ?? null)
 const selectedFieldTable = computed(() => (
   selectedField.value ? parseV5FieldTable(selectedField.value) : null
+))
+const concepts = computed(() => buildV5ConceptIndex(previews.value))
+const filteredConcepts = computed(() => {
+  const query = conceptQuery.value.trim().toLocaleLowerCase()
+  if (!query) return concepts.value
+  return concepts.value.filter(concept => (
+    concept.title.toLocaleLowerCase().includes(query)
+    || concept.concept_id.toLocaleLowerCase().includes(query)
+    || concept.category_display_name.toLocaleLowerCase().includes(query)
+  ))
+})
+const selectedConcept = computed<V5Concept | null>(() => (
+  filteredConcepts.value.find(concept => concept.concept_id === selectedConceptId.value)
+    ?? filteredConcepts.value[0]
+    ?? null
 ))
 const selectedDynamicDiff = computed<V5DynamicFieldDiff | null>(() => (
   dynamicResult.value?.product_version_id === selectedPreview.value?.product_version_id
@@ -134,6 +156,17 @@ function selectProduct(preview: V5CandidatePreview): void {
 function selectField(preview: V5CandidatePreview, fieldId: string): void {
   selectedProductVersionId.value = preview.product_version_id
   selectedFieldId.value = fieldId
+}
+
+function selectConcept(concept: V5Concept): void {
+  selectedConceptId.value = concept.concept_id
+}
+
+function openConceptInstance(instance: V5ConceptInstance): void {
+  const preview = previews.value.find(item => item.product_version_id === instance.product_version_id)
+  if (!preview) return
+  selectProduct(preview)
+  selectedFieldId.value = instance.field_id
 }
 
 function clearPreviews(): void {
@@ -360,6 +393,79 @@ onMounted(loadCatalog)
     </section>
 
     <p v-if="errorMessage" class="v5-preview__error" role="alert">{{ errorMessage }}</p>
+
+    <section v-if="concepts.length" class="v5-preview__concepts" data-testid="v5-concept-index">
+      <header class="v5-preview__concepts-header">
+        <div>
+          <h3>跨产品概念</h3>
+          <p>概念关联多个产品实体；字段值和 Evidence 仍归属于各自产品。</p>
+        </div>
+        <label>
+          <span>查找概念</span>
+          <input v-model.trim="conceptQuery" type="search" placeholder="产品简称、等待期…" />
+        </label>
+      </header>
+
+      <div class="v5-preview__concept-browser">
+        <aside class="v5-preview__concept-navigation">
+          <button
+            v-for="concept in filteredConcepts"
+            :key="concept.concept_id"
+            type="button"
+            :class="{ active: selectedConcept?.concept_id === concept.concept_id }"
+            @click="selectConcept(concept)"
+          >
+            <span>
+              <strong>{{ concept.title }}</strong>
+              <small>{{ concept.concept_id }}</small>
+            </span>
+            <em>{{ concept.related_product_count }}款</em>
+          </button>
+          <p v-if="filteredConcepts.length === 0" class="v5-preview__empty">没有匹配的概念</p>
+        </aside>
+
+        <div v-if="selectedConcept" class="v5-preview__concept-detail">
+          <header>
+            <div>
+              <p>{{ selectedConcept.category_display_name }}</p>
+              <h4>{{ selectedConcept.title }}</h4>
+              <code>{{ selectedConcept.concept_id }}</code>
+            </div>
+            <span>{{ selectedConcept.related_product_count }} 个产品实体</span>
+          </header>
+          <p class="v5-preview__concept-hint">以下值来自对应产品字段，可点击实体回到产品详情核对原文。</p>
+          <div class="v5-preview__concept-table-wrap">
+            <table class="v5-preview__concept-table">
+              <thead>
+                <tr>
+                  <th scope="col">险种</th>
+                  <th scope="col">产品实体</th>
+                  <th scope="col">字段值</th>
+                  <th scope="col">Evidence</th>
+                  <th scope="col">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="instance in selectedConcept.instances" :key="instance.product_version_id">
+                  <td>{{ instance.insurance_class }}</td>
+                  <td>
+                    <strong>{{ instance.product_display_name }}</strong>
+                    <small>{{ instance.product_id }} · {{ instance.product_version_id }}</small>
+                  </td>
+                  <td class="v5-preview__concept-value">{{ formatValue(instance.value) }}</td>
+                  <td>{{ instance.evidence_count }}</td>
+                  <td>
+                    <button type="button" class="v5-preview__concept-open" @click="openConceptInstance(instance)">
+                      查看实体
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <div v-if="previews.length" class="v5-preview__browser">
       <aside class="v5-preview__navigation">
@@ -635,6 +741,36 @@ onMounted(loadCatalog)
 .v5-preview__schema-grid button { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; padding: 10px 12px; border: 0; border-right: 1px solid var(--td-component-border); border-bottom: 1px solid var(--td-component-border); background: transparent; color: var(--td-text-color-primary); text-align: left; cursor: pointer; }
 .v5-preview__schema-grid button.active { background: var(--td-brand-color-light); color: var(--td-brand-color); }
 .v5-preview__schema-grid strong { color: var(--td-text-color-placeholder); font-size: 18px; }
+.v5-preview__concepts { display: grid; gap: 12px; padding: 14px 20px 16px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-container); }
+.v5-preview__concepts-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+.v5-preview__concepts-header h3 { margin: 0; font-size: 16px; }
+.v5-preview__concepts-header p { margin: 4px 0 0; color: var(--td-text-color-secondary); font-size: 12px; }
+.v5-preview__concepts-header label { display: grid; gap: 4px; width: min(260px, 35%); }
+.v5-preview__concepts-header label span { color: var(--td-text-color-secondary); font-size: 11px; }
+.v5-preview__concepts-header input { box-sizing: border-box; width: 100%; height: 30px; padding: 0 9px; border: 1px solid var(--td-component-border); border-radius: 5px; background: var(--td-bg-color-container); color: var(--td-text-color-primary); font: inherit; }
+.v5-preview__concept-browser { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 0; border: 1px solid var(--td-component-border); border-radius: 6px; overflow: hidden; }
+.v5-preview__concept-navigation { max-height: 220px; overflow: auto; padding: 6px; border-right: 1px solid var(--td-component-border); background: var(--td-bg-color-secondarycontainer); }
+.v5-preview__concept-navigation button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--td-text-color-primary); text-align: left; cursor: pointer; }
+.v5-preview__concept-navigation button.active { background: var(--td-brand-color-light); color: var(--td-brand-color); }
+.v5-preview__concept-navigation button > span { display: grid; min-width: 0; gap: 2px; }
+.v5-preview__concept-navigation strong { overflow-wrap: anywhere; font-size: 13px; }
+.v5-preview__concept-navigation small { color: var(--td-text-color-placeholder); font-family: ui-monospace, monospace; font-size: 10px; overflow-wrap: anywhere; }
+.v5-preview__concept-navigation em { flex: none; color: var(--td-text-color-secondary); font-size: 11px; font-style: normal; }
+.v5-preview__concept-detail { min-width: 0; padding: 12px 14px; overflow: auto; }
+.v5-preview__concept-detail > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.v5-preview__concept-detail > header p { margin: 0 0 3px; color: var(--td-text-color-placeholder); font-size: 11px; }
+.v5-preview__concept-detail h4 { margin: 0 0 3px; font-size: 16px; }
+.v5-preview__concept-detail code { color: var(--td-text-color-placeholder); font-family: ui-monospace, monospace; font-size: 11px; }
+.v5-preview__concept-detail > header > span { flex: none; padding: 4px 7px; border-radius: 4px; background: var(--td-success-color-1); color: var(--td-success-color-7); font-size: 11px; }
+.v5-preview__concept-hint { margin: 8px 0 10px; color: var(--td-text-color-secondary); font-size: 12px; }
+.v5-preview__concept-table-wrap { overflow-x: auto; }
+.v5-preview__concept-table { width: 100%; min-width: 690px; border-collapse: collapse; font-size: 12px; }
+.v5-preview__concept-table th, .v5-preview__concept-table td { padding: 8px 9px; border: 1px solid var(--td-component-border); text-align: left; vertical-align: top; }
+.v5-preview__concept-table th { background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-secondary); font-weight: 600; }
+.v5-preview__concept-table td > strong, .v5-preview__concept-table td > small { display: block; }
+.v5-preview__concept-table td > small { margin-top: 2px; color: var(--td-text-color-placeholder); font-family: ui-monospace, monospace; font-size: 10px; }
+.v5-preview__concept-value { max-width: 360px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.v5-preview__concept-open { padding: 4px 8px; border: 1px solid var(--td-brand-color); border-radius: 4px; background: transparent; color: var(--td-brand-color); cursor: pointer; font-size: 11px; }
 @media (max-width: 1100px) {
   .v5-preview__form { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .v5-preview__browser { grid-template-columns: 270px minmax(0, 1fr); }
@@ -645,6 +781,10 @@ onMounted(loadCatalog)
   .v5-preview__form { grid-template-columns: 1fr 1fr; max-height: 250px; overflow: auto; }
   .v5-preview__browser { grid-template-columns: 1fr; }
   .v5-preview__navigation { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--td-component-border); }
+  .v5-preview__concepts-header { align-items: stretch; flex-direction: column; }
+  .v5-preview__concepts-header label { width: 100%; }
+  .v5-preview__concept-browser { grid-template-columns: 1fr; }
+  .v5-preview__concept-navigation { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--td-component-border); }
   .v5-preview__metadata { grid-template-columns: 1fr; }
   .v5-preview__metadata div:nth-child(odd) { padding-right: 0; }
   .v5-preview__schema-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
