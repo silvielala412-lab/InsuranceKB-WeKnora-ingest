@@ -47,7 +47,7 @@ const searchQuery = ref('')
 const searchLoading = ref(false)
 const searchError = ref('')
 const searchResult = ref<V5SearchResult | null>(null)
-const activeTab = ref<'preview' | 'qa'>('preview')
+const activeTab = ref<'preview' | 'concepts' | 'qa'>('preview')
 
 const form = reactive({
   mode: 'fixture' as 'fixture' | 'llm',
@@ -173,6 +173,7 @@ function openConceptInstance(instance: V5ConceptInstance): void {
   if (!preview) return
   selectProduct(preview)
   selectedFieldId.value = instance.field_id
+  activeTab.value = 'preview'
 }
 
 function openSearchMatch(match: V5SearchMatch): void {
@@ -379,6 +380,16 @@ onMounted(loadCatalog)
       <button
         type="button"
         role="tab"
+        :aria-selected="activeTab === 'concepts'"
+        :class="{ active: activeTab === 'concepts' }"
+        data-testid="v5-concepts-tab"
+        @click="activeTab = 'concepts'"
+      >
+        概念关系
+      </button>
+      <button
+        type="button"
+        role="tab"
         :aria-selected="activeTab === 'qa'"
         :class="{ active: activeTab === 'qa' }"
         data-testid="v5-search-tab"
@@ -455,79 +466,6 @@ onMounted(loadCatalog)
     </section>
 
     <p v-if="errorMessage" class="v5-preview__error" role="alert">{{ errorMessage }}</p>
-
-    <section v-if="concepts.length" class="v5-preview__concepts" data-testid="v5-concept-index">
-      <header class="v5-preview__concepts-header">
-        <div>
-          <h3>跨产品概念</h3>
-          <p>概念关联多个产品实体；字段值和 Evidence 仍归属于各自产品。</p>
-        </div>
-        <label>
-          <span>查找概念</span>
-          <input v-model.trim="conceptQuery" type="search" placeholder="产品简称、等待期…" />
-        </label>
-      </header>
-
-      <div class="v5-preview__concept-browser">
-        <aside class="v5-preview__concept-navigation">
-          <button
-            v-for="concept in filteredConcepts"
-            :key="concept.concept_id"
-            type="button"
-            :class="{ active: selectedConcept?.concept_id === concept.concept_id }"
-            @click="selectConcept(concept)"
-          >
-            <span>
-              <strong>{{ concept.title }}</strong>
-              <small>{{ concept.concept_id }}</small>
-            </span>
-            <em>{{ concept.related_product_count }}款</em>
-          </button>
-          <p v-if="filteredConcepts.length === 0" class="v5-preview__empty">没有匹配的概念</p>
-        </aside>
-
-        <div v-if="selectedConcept" class="v5-preview__concept-detail">
-          <header>
-            <div>
-              <p>{{ selectedConcept.category_display_name }}</p>
-              <h4>{{ selectedConcept.title }}</h4>
-              <code>{{ selectedConcept.concept_id }}</code>
-            </div>
-            <span>{{ selectedConcept.related_product_count }} 个产品实体</span>
-          </header>
-          <p class="v5-preview__concept-hint">以下值来自对应产品字段，可点击实体回到产品详情核对原文。</p>
-          <div class="v5-preview__concept-table-wrap">
-            <table class="v5-preview__concept-table">
-              <thead>
-                <tr>
-                  <th scope="col">险种</th>
-                  <th scope="col">产品实体</th>
-                  <th scope="col">字段值</th>
-                  <th scope="col">Evidence</th>
-                  <th scope="col">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="instance in selectedConcept.instances" :key="instance.product_version_id">
-                  <td>{{ instance.insurance_class }}</td>
-                  <td>
-                    <strong>{{ instance.product_display_name }}</strong>
-                    <small>{{ instance.product_id }} · {{ instance.product_version_id }}</small>
-                  </td>
-                  <td class="v5-preview__concept-value">{{ formatValue(instance.value) }}</td>
-                  <td>{{ instance.evidence_count }}</td>
-                  <td>
-                    <button type="button" class="v5-preview__concept-open" @click="openConceptInstance(instance)">
-                      查看实体
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <div v-if="previews.length" class="v5-preview__browser">
       <aside class="v5-preview__navigation">
@@ -705,6 +643,93 @@ onMounted(loadCatalog)
 
     </div>
 
+    <section v-else-if="activeTab === 'concepts'" class="v5-preview__concept-tab">
+      <section v-if="concepts.length" class="v5-preview__concepts" data-testid="v5-concept-index">
+        <header class="v5-preview__concepts-header">
+          <div>
+            <h3>跨产品概念</h3>
+            <p>每个 Schema 字段都是一个概念；即使当前产品没有值，也保留实体关联并显示为空。</p>
+          </div>
+          <label>
+            <span>查找概念</span>
+            <input v-model.trim="conceptQuery" type="search" placeholder="产品简称、等待期…" />
+          </label>
+        </header>
+
+        <div class="v5-preview__concept-browser">
+          <aside class="v5-preview__concept-navigation">
+            <button
+              v-for="concept in filteredConcepts"
+              :key="concept.concept_id"
+              type="button"
+              :class="{ active: selectedConcept?.concept_id === concept.concept_id }"
+              @click="selectConcept(concept)"
+            >
+              <span>
+                <strong>{{ concept.title }}</strong>
+                <small>{{ concept.concept_id }}</small>
+              </span>
+              <em>{{ concept.related_product_count }}款</em>
+            </button>
+            <p v-if="filteredConcepts.length === 0" class="v5-preview__empty">没有匹配的概念</p>
+          </aside>
+
+          <div v-if="selectedConcept" class="v5-preview__concept-detail">
+            <header>
+              <div>
+                <p>{{ selectedConcept.category_display_name }}</p>
+                <h4>{{ selectedConcept.title }}</h4>
+                <code>{{ selectedConcept.concept_id }}</code>
+              </div>
+              <span>{{ selectedConcept.related_product_count }} 个产品实体</span>
+            </header>
+            <p class="v5-preview__concept-hint">以下值来自对应产品字段；空值仍保留关系，可点击实体回到产品详情核对原文。</p>
+            <div class="v5-preview__concept-table-wrap">
+              <table class="v5-preview__concept-table">
+                <thead>
+                  <tr>
+                    <th scope="col">险种</th>
+                    <th scope="col">产品实体</th>
+                    <th scope="col">字段值</th>
+                    <th scope="col">状态</th>
+                    <th scope="col">Evidence</th>
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="instance in selectedConcept.instances" :key="instance.product_version_id">
+                    <td>{{ instance.insurance_class }}</td>
+                    <td>
+                      <strong>{{ instance.product_display_name }}</strong>
+                      <small>{{ instance.product_id }} · {{ instance.product_version_id }}</small>
+                    </td>
+                    <td class="v5-preview__concept-value">
+                      {{ formatValue(instance.value) || '（空）' }}
+                    </td>
+                    <td>
+                      <span class="v5-preview__concept-state" :data-state="instance.state">
+                        {{ stateLabels[instance.state] }}
+                      </span>
+                    </td>
+                    <td>{{ instance.evidence_count }}</td>
+                    <td>
+                      <button type="button" class="v5-preview__concept-open" @click="openConceptInstance(instance)">
+                        查看实体
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div v-else class="v5-preview__empty-workspace">
+        <p v-if="loadingCatalog">正在加载产品结果…</p>
+        <p v-else>当前没有可展示的概念。</p>
+      </div>
+    </section>
+
     <section v-else class="v5-preview__qa-tab" data-testid="v5-qa-tab">
       <section v-if="previews.length" class="v5-preview__search" data-testid="v5-search">
         <header class="v5-preview__search-header">
@@ -800,7 +825,7 @@ onMounted(loadCatalog)
 .v5-preview__tabs button { position: relative; padding: 11px 14px 10px; border: 0; background: transparent; color: var(--td-text-color-secondary); cursor: pointer; font-size: 13px; }
 .v5-preview__tabs button.active { color: var(--td-brand-color); font-weight: 600; }
 .v5-preview__tabs button.active::after { position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; background: var(--td-brand-color); content: ''; }
-.v5-preview__tab-panel, .v5-preview__qa-tab { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
+.v5-preview__tab-panel, .v5-preview__concept-tab, .v5-preview__qa-tab { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
 .v5-preview__form { display: grid; grid-template-columns: minmax(180px, 1.2fr) repeat(4, minmax(140px, 1fr)); gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-secondarycontainer); }
 .v5-preview__form label { display: grid; gap: 5px; min-width: 0; }
 .v5-preview__form label > span { color: var(--td-text-color-secondary); font-size: 12px; }
@@ -907,7 +932,7 @@ onMounted(loadCatalog)
 .v5-preview__search-table td > small { margin-top: 2px; color: var(--td-text-color-placeholder); font-family: ui-monospace, monospace; font-size: 10px; overflow-wrap: anywhere; }
 .v5-preview__search-value { max-width: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .v5-preview__search-open { padding: 4px 8px; border: 1px solid var(--td-brand-color); border-radius: 4px; background: transparent; color: var(--td-brand-color); cursor: pointer; font-size: 11px; }
-.v5-preview__concepts { display: grid; gap: 12px; padding: 14px 20px 16px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-container); }
+.v5-preview__concepts { display: grid; gap: 12px; flex: 1; min-height: 0; padding: 14px 20px 16px; border-bottom: 1px solid var(--td-component-border); background: var(--td-bg-color-container); }
 .v5-preview__concepts-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
 .v5-preview__concepts-header h3 { margin: 0; font-size: 16px; }
 .v5-preview__concepts-header p { margin: 4px 0 0; color: var(--td-text-color-secondary); font-size: 12px; }
@@ -936,6 +961,9 @@ onMounted(loadCatalog)
 .v5-preview__concept-table td > strong, .v5-preview__concept-table td > small { display: block; }
 .v5-preview__concept-table td > small { margin-top: 2px; color: var(--td-text-color-placeholder); font-family: ui-monospace, monospace; font-size: 10px; }
 .v5-preview__concept-value { max-width: 360px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.v5-preview__concept-state { display: inline-block; padding: 3px 6px; border-radius: 4px; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-secondary); font-size: 11px; white-space: nowrap; }
+.v5-preview__concept-state[data-state='present'] { background: var(--td-success-color-1); color: var(--td-success-color-7); }
+.v5-preview__concept-state[data-state='absent_explicitly'] { background: var(--td-warning-color-1); color: var(--td-warning-color-8); }
 .v5-preview__concept-open { padding: 4px 8px; border: 1px solid var(--td-brand-color); border-radius: 4px; background: transparent; color: var(--td-brand-color); cursor: pointer; font-size: 11px; }
 @media (max-width: 1100px) {
   .v5-preview__form { grid-template-columns: repeat(3, minmax(140px, 1fr)); }

@@ -48,7 +48,7 @@ function preview(
 }
 
 describe('buildV5ConceptIndex', () => {
-  it('relates present product fields while omitting unknown entities', () => {
+  it('relates every product field and keeps unknown entities with empty values', () => {
     const concepts = buildV5ConceptIndex([
       preview('596', 'e生保尊享', 'e生保尊享'),
       preview('5003', '创金尊分红26', '创金尊分红26'),
@@ -59,8 +59,13 @@ describe('buildV5ConceptIndex', () => {
     expect(concepts[0]).toMatchObject({
       concept_id: 'product_short_name',
       title: '产品简称',
-      related_product_count: 2,
+      related_product_count: 3,
     })
-    expect(concepts[0].instances.map(instance => instance.product_id)).toEqual(['596', '5003'])
+    expect(concepts[0].instances.map(instance => instance.product_id)).toEqual(['596', '5003', '594'])
+    expect(concepts[0].instances[2]).toMatchObject({
+      state: 'unknown',
+      value: null,
+      evidence_count: 0,
+    })
   })
 })

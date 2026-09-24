@@ -24,14 +24,10 @@ export interface V5Concept {
   readonly related_product_count: number
 }
 
-function hasValue(value: V5PreviewField['value']): boolean {
-  if (Array.isArray(value)) return value.length > 0
-  return value !== null && String(value).trim().length > 0
-}
-
 /**
  * Builds a navigational concept index from the already loaded product previews.
- * Values remain attached to their product entity; the concept only relates them.
+ * Every schema field participates, including unknown/explicitly absent fields;
+ * values remain attached to their product entity and the concept only relates them.
  */
 export function buildV5ConceptIndex(
   previews: readonly V5CandidatePreview[],
@@ -45,7 +41,6 @@ export function buildV5ConceptIndex(
 
   for (const preview of previews) {
     for (const field of preview.fields) {
-      if (field.state !== 'present' || !hasValue(field.value)) continue
       const current = groups.get(field.field_id) ?? {
         title: field.display_name,
         category_display_name: field.category_display_name,
