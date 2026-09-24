@@ -208,6 +208,7 @@ def _llm_answer(
     completion: SearchCompletion,
     query: str,
     matches: Sequence[V5SearchMatch],
+    loaded_products: Sequence[object] = (),
 ) -> str:
     context = [
         {
@@ -221,13 +222,26 @@ def _llm_answer(
         }
         for index, match in enumerate(matches)
     ]
+    products = [
+        {
+            "product_id": getattr(product, "product_id", ""),
+            "product": getattr(product, "product_display_name", ""),
+            "insurance_class": getattr(product, "insurance_class", ""),
+        }
+        for product in loaded_products
+    ]
     raw = completion.complete(
         system=(
-            "你是保险产品知识检索助手。只使用给定的已抽取字段和 Evidence 回答用户问题，"
-            "不得补充材料之外的事实。只输出 JSON 对象，结构为 "
+            f"你是保险产品知识检索助手，当前模型是 {completion.model}。"
+            "只使用给定的已抽取字段、Evidence 和已加载产品清单回答用户问题，"
+            "不得补充材料之外的保险事实。若用户询问你的模型身份，可以直接回答当前模型名；"
+            "如果材料不足以回答其他问题，要明确说明材料中没有依据。只输出 JSON 对象，结构为 "
             '{"answer":"简洁回答","match_indices":[0]}。'
         ),
-        user=json.dumps({"query": query, "matches": context}, ensure_ascii=False),
+        user=json.dumps(
+            {"query": query, "loaded_products": products, "matches": context},
+            ensure_ascii=False,
+        ),
     )
     try:
         payload = json.loads(raw)
@@ -256,9 +270,14 @@ def search_provider_run(
     provider: Literal["local", "bailian"] = "local"
     model: str | None = None
     provider_error: str | None = None
-    if completion is not None and matches:
+    if completion is not None:
         try:
-            answer = _llm_answer(completion, request.query, matches)
+            answer = _llm_answer(
+                completion,
+                request.query,
+                matches,
+                loaded_products=provider_run.products,
+            )
             provider = "bailian"
             model = completion.model
         except (LlmPluginError, ValueError, httpx.HTTPError):

@@ -86,6 +86,17 @@ class _FakeCompletion:
         return json.dumps({"answer": "两款产品都有产品简称。", "match_indices": [0, 1]})
 
 
+class _NoMatchCompletion:
+    model = "qwen-plus"
+
+    def complete(self, *, system: str, user: str) -> str:
+        assert "当前模型是 qwen-plus" in system
+        payload = json.loads(user)
+        assert payload["matches"] == []
+        assert payload["loaded_products"][0]["product_id"] == "596"
+        return json.dumps({"answer": "我是 qwen-plus。", "match_indices": []})
+
+
 def test_search_relates_present_fields_and_can_summarize_with_provider() -> None:
     run = _run(
         _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享"),
@@ -113,6 +124,19 @@ def test_search_returns_local_answer_without_match() -> None:
     assert result.provider == "local"
     assert result.matches == ()
     assert "未检索到" in result.answer
+
+
+def test_search_uses_provider_for_general_question_without_field_match() -> None:
+    result = search_provider_run(
+        _run(_preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享")),
+        V5SearchRequest(query="你是哪个模型"),
+        completion=_NoMatchCompletion(),
+    )
+
+    assert result.provider == "bailian"
+    assert result.model == "qwen-plus"
+    assert result.matches == ()
+    assert result.answer == "我是 qwen-plus。"
 
 
 def test_search_answers_a_natural_question_from_field_matches() -> None:
