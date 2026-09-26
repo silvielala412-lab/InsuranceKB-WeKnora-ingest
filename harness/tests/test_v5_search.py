@@ -97,6 +97,19 @@ class _NoMatchCompletion:
         return json.dumps({"answer": "我是 qwen-plus。", "match_indices": []})
 
 
+class _ContextCaptureCompletion:
+    model = "qwen-plus"
+
+    def __init__(self) -> None:
+        self.payload: dict[str, object] | None = None
+
+    def complete(self, *, system: str, user: str) -> str:
+        self.payload = json.loads(user)
+        matches = self.payload["matches"]
+        assert isinstance(matches, list)
+        return json.dumps({"answer": "已按字段回答。", "match_indices": list(range(len(matches)))})
+
+
 def test_search_relates_present_fields_and_can_summarize_with_provider() -> None:
     run = _run(
         _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享"),
@@ -148,3 +161,39 @@ def test_search_answers_a_natural_question_from_field_matches() -> None:
     assert result.provider == "local"
     assert result.matches
     assert "e生保尊享" in result.answer
+
+
+def test_search_prioritizes_named_schema_field_in_a_natural_question() -> None:
+    run = _run(
+        _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享"),
+    )
+
+    result = search_provider_run(
+        run,
+        V5SearchRequest(query="这个产品的产品简称是什么？"),
+    )
+
+    assert result.matches
+    assert {match.field_id for match in result.matches} == {"product_short_name"}
+
+
+def test_search_bounds_llm_context_and_related_product_list() -> None:
+    run = _run(
+        _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享"),
+        _preview("594", "平安e生保（惠享版）长期医疗保险", "e生保惠享"),
+    )
+    completion = _ContextCaptureCompletion()
+
+    result = search_provider_run(
+        run,
+        V5SearchRequest(query="产品简称"),
+        completion=completion,
+    )
+
+    assert result.provider == "bailian"
+    assert completion.payload is not None
+    context = completion.payload["matches"]
+    products = completion.payload["loaded_products"]
+    assert isinstance(context, list) and len(context) == 2
+    assert isinstance(products, list) and {item["product_id"] for item in products} == {"596", "594"}
+    assert len(json.dumps(completion.payload, ensure_ascii=False)) < 5000
