@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
 import {
   createV5PreviewClient,
   type V5CatalogIndex,
   type V5PreviewClient,
   type V5PreviewRequest,
+  type V5SearchStreamHandlers,
+  type V5SearchStreamMeta,
 } from '../../../../api/schema-wiki/v5Preview.ts'
 import {
   projectV5PreviewNavigation,
@@ -26,6 +28,7 @@ import {
   type V5ConceptInstance,
 } from './v5Concepts.ts'
 import type { V5SearchMatch, V5SearchResult } from '../../../../api/schema-wiki/v5/v5SearchContract.ts'
+import { renderV5SearchMarkdown } from './v5SearchMarkdown.ts'
 
 const props = withDefaults(defineProps<{ client?: V5PreviewClient }>(), {
   client: () => createV5PreviewClient(),
@@ -48,6 +51,13 @@ const searchLoading = ref(false)
 const searchError = ref('')
 const searchResult = ref<V5SearchResult | null>(null)
 const activeTab = ref<'preview' | 'concepts' | 'qa'>('preview')
+let activeSearchController: AbortController | null = null
+
+const searchSuggestions = [
+  '哪些产品有等待期？',
+  '对比各产品的宽限期',
+  '你是哪个模型？',
+] as const
 
 const form = reactive({
   mode: 'fixture' as 'fixture' | 'llm',
@@ -123,6 +133,14 @@ const providerRepairProducts = computed(() => providerRun.value?.products.filter
 const providerFailures = computed(() => providerRun.value?.products.filter(
   product => product.status === 'FAILED',
 ) ?? [])
+const searchAnswerHtml = computed(() => renderV5SearchMarkdown(
+  searchResult.value?.answer ?? '',
+  searchLoading.value,
+))
+const searchStatusLabel = computed(() => {
+  if (searchLoading.value) return searchResult.value?.answer ? '正在生成回答' : '正在检索依据'
+  return searchResult.value ? '已完成' : '等待提问'
+})
 
 const stateLabels: Record<V5PreviewField['state'], string> = {
   present: '已抽取',
@@ -184,6 +202,42 @@ function openSearchMatch(match: V5SearchMatch): void {
   activeTab.value = 'preview'
 }
 
+function updateSearchMeta(meta: V5SearchStreamMeta): void {
+  searchResult.value = {
+    contract: 'insurance-v5-search-response.v1',
+    query: meta.query,
+    provider: meta.provider,
+    model: meta.model,
+    answer: '',
+    matches: meta.matches,
+    provider_error: meta.provider_error,
+  }
+}
+
+function appendSearchDelta(content: string): void {
+  if (!searchResult.value) return
+  searchResult.value = {
+    ...searchResult.value,
+    answer: searchResult.value.answer + content,
+  }
+}
+
+function finishSearch(result: Pick<V5SearchResult, 'provider' | 'model' | 'provider_error'>): void {
+  if (!searchResult.value) return
+  searchResult.value = { ...searchResult.value, ...result }
+}
+
+function cancelSearch(): void {
+  activeSearchController?.abort()
+  activeSearchController = null
+  searchLoading.value = false
+}
+
+function askSuggestedQuestion(question: string): void {
+  searchQuery.value = question
+  void submitSearch()
+}
+
 async function submitSearch(): Promise<void> {
   const query = searchQuery.value.trim()
   if (!query) {
@@ -191,28 +245,49 @@ async function submitSearch(): Promise<void> {
     searchResult.value = null
     return
   }
-  if (!props.client.search) {
+  if (!props.client.searchStream && !props.client.search) {
     searchError.value = 'V5_SEARCH_NOT_CONFIGURED'
     return
   }
+  activeSearchController?.abort()
+  const controller = new AbortController()
+  activeSearchController = controller
   searchLoading.value = true
   searchError.value = ''
+  searchResult.value = null
   try {
-    searchResult.value = await props.client.search(query, 20)
+    if (props.client.searchStream) {
+      const handlers: V5SearchStreamHandlers = {
+        onMeta: updateSearchMeta,
+        onDelta: appendSearchDelta,
+        onDone: finishSearch,
+      }
+      await props.client.searchStream(query, handlers, 20, controller.signal)
+    } else if (props.client.search) {
+      searchResult.value = await props.client.search(query, 20)
+    }
   } catch (error) {
-    searchResult.value = null
-    searchError.value = error instanceof Error ? error.message : 'V5_SEARCH_FAILED'
+    if (!controller.signal.aborted) {
+      searchResult.value = null
+      searchError.value = error instanceof Error ? error.message : 'V5_SEARCH_FAILED'
+    }
   } finally {
-    searchLoading.value = false
+    if (activeSearchController === controller) {
+      activeSearchController = null
+      searchLoading.value = false
+    }
   }
 }
 
 function clearPreviews(): void {
+  cancelSearch()
   previews.value = []
   selectedProductVersionId.value = ''
   selectedFieldId.value = ''
   errorMessage.value = ''
   dynamicResult.value = null
+  searchResult.value = null
+  searchError.value = ''
 }
 
 async function runFieldAction(action: V5DynamicFieldAction): Promise<void> {
@@ -322,6 +397,7 @@ watch(() => form.insuranceClass, insuranceClass => {
 })
 
 onMounted(loadCatalog)
+onBeforeUnmount(cancelSearch)
 </script>
 
 <template>
@@ -740,6 +816,10 @@ onMounted(loadCatalog)
           </div>
           <div class="v5-preview__search-header-meta">
             <span class="v5-preview__search-scope">仅使用当前抽取结果</span>
+            <span class="v5-preview__search-status" :data-active="searchLoading">
+              <i aria-hidden="true" />
+              {{ searchStatusLabel }}
+            </span>
             <span v-if="searchResult" class="v5-preview__search-provider" :data-provider="searchResult.provider">
               {{ searchResult.provider === 'bailian' ? `百炼 · ${searchResult.model ?? ''}` : '本地字段检索' }}
             </span>
@@ -756,11 +836,33 @@ onMounted(loadCatalog)
               aria-label="搜索产品知识"
             />
           </div>
-          <button type="submit" :disabled="searchLoading">
-            {{ searchLoading ? '回答中' : '提问' }}
-          </button>
+          <div class="v5-preview__search-actions">
+            <button
+              v-if="searchLoading"
+              type="button"
+              class="v5-preview__search-stop"
+              @click="cancelSearch"
+            >
+              停止
+            </button>
+            <button type="submit" :disabled="searchLoading">
+              {{ searchLoading ? '回答中' : '提问' }}
+            </button>
+          </div>
         </form>
         <p class="v5-preview__search-hint">可以直接问自然语言问题，例如“哪些产品有等待期？”或“你是哪个模型？”</p>
+        <div class="v5-preview__search-suggestions" aria-label="推荐问题">
+          <span>试试：</span>
+          <button
+            v-for="suggestion in searchSuggestions"
+            :key="suggestion"
+            type="button"
+            :disabled="searchLoading"
+            @click="askSuggestedQuestion(suggestion)"
+          >
+            {{ suggestion }}
+          </button>
+        </div>
         <p v-if="searchError" class="v5-preview__search-error" role="alert">{{ searchError }}</p>
 
         <article v-if="searchResult" class="v5-preview__search-result">
@@ -771,7 +873,18 @@ onMounted(loadCatalog)
               <small>{{ searchResult.provider === 'bailian' ? '百炼根据当前知识库生成' : '基于字段匹配生成' }}</small>
             </div>
           </header>
-          <p class="v5-preview__search-answer">{{ searchResult.answer }}</p>
+          <div
+            class="v5-preview__search-answer"
+            :class="{ 'is-streaming': searchLoading }"
+            data-testid="v5-search-answer"
+            aria-live="polite"
+          >
+            <div v-if="searchAnswerHtml" class="v5-preview__search-markdown" v-html="searchAnswerHtml" />
+            <div v-else class="v5-preview__search-placeholder">
+              <span class="v5-preview__search-spinner" aria-hidden="true" />
+              正在整理检索结果…
+            </div>
+          </div>
           <p v-if="searchResult.provider_error" class="v5-preview__search-fallback">
             百炼暂不可用，已展示本地匹配结果。
           </p>
@@ -935,16 +1048,26 @@ onMounted(loadCatalog)
 .v5-preview__search-header h3 { margin: 0; font-size: 22px; letter-spacing: 0; }
 .v5-preview__search-header p { margin: 6px 0 0; color: var(--td-text-color-secondary); font-size: 13px; }
 .v5-preview__search-header-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-.v5-preview__search-scope, .v5-preview__search-provider { flex: none; padding: 5px 8px; border-radius: 999px; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-secondary); font-size: 11px; }
+.v5-preview__search-scope, .v5-preview__search-provider, .v5-preview__search-status { flex: none; padding: 5px 8px; border-radius: 999px; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-secondary); font-size: 11px; }
 .v5-preview__search-provider[data-provider='bailian'] { background: var(--td-success-color-1); color: var(--td-success-color-7); }
+.v5-preview__search-status { display: inline-flex; align-items: center; gap: 5px; }
+.v5-preview__search-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--td-success-color); }
+.v5-preview__search-status[data-active='true'] { background: var(--td-brand-color-light); color: var(--td-brand-color); }
+.v5-preview__search-status[data-active='true'] i { background: var(--td-brand-color); animation: v5-search-pulse 1.1s ease-in-out infinite; }
 .v5-preview__search-form { display: flex; gap: 10px; margin-top: 6px; }
 .v5-preview__search-input-wrap { display: flex; flex: 1; align-items: center; min-width: 0; height: 44px; padding: 0 13px; border: 1px solid var(--td-component-border); border-radius: 7px; background: var(--td-bg-color-container); color: var(--td-text-color-placeholder); transition: border-color .15s, box-shadow .15s; }
 .v5-preview__search-input-wrap:focus-within { border-color: var(--td-brand-color); box-shadow: 0 0 0 3px var(--td-brand-color-light); }
 .v5-preview__search-input-wrap svg { flex: none; margin-right: 8px; }
 .v5-preview__search-form input { box-sizing: border-box; width: 100%; min-width: 0; height: 40px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--td-text-color-primary); font: inherit; }
+.v5-preview__search-actions { display: flex; gap: 8px; }
 .v5-preview__search-form button { display: inline-flex; align-items: center; justify-content: center; min-width: 76px; height: 44px; padding: 0 18px; border: 1px solid var(--td-brand-color); border-radius: 7px; background: var(--td-brand-color); color: #fff; cursor: pointer; font-weight: 600; }
 .v5-preview__search-form button:disabled { cursor: not-allowed; opacity: .55; }
+.v5-preview__search-form .v5-preview__search-stop { min-width: 58px; border-color: var(--td-component-border); background: var(--td-bg-color-container); color: var(--td-text-color-secondary); }
 .v5-preview__search-hint { margin: -3px 0 0; color: var(--td-text-color-placeholder); font-size: 11px; }
+.v5-preview__search-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--td-text-color-placeholder); font-size: 11px; }
+.v5-preview__search-suggestions button { padding: 5px 9px; border: 1px solid var(--td-component-border); border-radius: 999px; background: var(--td-bg-color-container); color: var(--td-text-color-secondary); cursor: pointer; font-size: 11px; }
+.v5-preview__search-suggestions button:hover { border-color: var(--td-brand-color); color: var(--td-brand-color); }
+.v5-preview__search-suggestions button:disabled { cursor: not-allowed; opacity: .55; }
 .v5-preview__search-error { margin: 0; color: var(--td-error-color-7); font-size: 12px; }
 .v5-preview__search-result { display: grid; gap: 10px; min-width: 0; margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--td-component-border); }
 .v5-preview__search-answer-header { display: flex; align-items: center; gap: 9px; }
@@ -952,7 +1075,24 @@ onMounted(loadCatalog)
 .v5-preview__search-answer-header strong, .v5-preview__search-answer-header small { display: block; }
 .v5-preview__search-answer-header strong { font-size: 13px; }
 .v5-preview__search-answer-header small { margin-top: 2px; color: var(--td-text-color-placeholder); font-size: 11px; }
-.v5-preview__search-answer { margin: 0; padding: 14px 16px; border: 1px solid var(--td-component-border); border-radius: 8px; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-primary); line-height: 1.7; white-space: pre-wrap; }
+.v5-preview__search-answer { position: relative; min-height: 44px; margin: 0; padding: 14px 16px; border: 1px solid var(--td-component-border); border-radius: 8px; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-primary); line-height: 1.7; overflow: auto; }
+.v5-preview__search-answer.is-streaming { border-color: var(--td-brand-color); box-shadow: 0 0 0 2px var(--td-brand-color-light); }
+.v5-preview__search-answer.is-streaming::after { display: inline-block; width: 6px; height: 17px; margin-left: 4px; vertical-align: -3px; background: var(--td-brand-color); animation: v5-search-cursor .9s steps(1) infinite; content: ''; }
+.v5-preview__search-markdown { min-width: 0; overflow-wrap: anywhere; }
+.v5-preview__search-markdown :deep(p) { margin: 0 0 10px; }
+.v5-preview__search-markdown :deep(p:last-child) { margin-bottom: 0; }
+.v5-preview__search-markdown :deep(h1), .v5-preview__search-markdown :deep(h2), .v5-preview__search-markdown :deep(h3), .v5-preview__search-markdown :deep(h4) { margin: 16px 0 8px; line-height: 1.35; }
+.v5-preview__search-markdown :deep(h1:first-child), .v5-preview__search-markdown :deep(h2:first-child), .v5-preview__search-markdown :deep(h3:first-child) { margin-top: 0; }
+.v5-preview__search-markdown :deep(ul), .v5-preview__search-markdown :deep(ol) { margin: 7px 0 10px; padding-left: 22px; }
+.v5-preview__search-markdown :deep(li) { margin: 4px 0; }
+.v5-preview__search-markdown :deep(blockquote) { margin: 10px 0; padding: 6px 12px; border-left: 3px solid var(--td-brand-color); background: var(--td-bg-color-container); color: var(--td-text-color-secondary); }
+.v5-preview__search-markdown :deep(table) { width: 100%; min-width: 620px; margin: 12px 0; border-collapse: collapse; background: var(--td-bg-color-container); font-size: 12px; }
+.v5-preview__search-markdown :deep(th), .v5-preview__search-markdown :deep(td) { padding: 8px 10px; border: 1px solid var(--td-component-border); text-align: left; vertical-align: top; }
+.v5-preview__search-markdown :deep(th) { background: var(--td-bg-color-secondarycontainer-hover); color: var(--td-text-color-secondary); font-weight: 600; }
+.v5-preview__search-markdown :deep(pre) { margin: 10px 0; padding: 12px; border-radius: 6px; background: var(--td-gray-color-14); color: var(--td-gray-color-2); overflow: auto; }
+.v5-preview__search-markdown :deep(code:not(pre code)) { padding: 2px 4px; border-radius: 3px; background: var(--td-bg-color-container); color: var(--td-brand-color); font-family: ui-monospace, monospace; font-size: .92em; }
+.v5-preview__search-placeholder { display: flex; align-items: center; gap: 8px; color: var(--td-text-color-placeholder); }
+.v5-preview__search-spinner { width: 12px; height: 12px; border: 2px solid var(--td-brand-color-light); border-top-color: var(--td-brand-color); border-radius: 50%; animation: v5-search-spin .8s linear infinite; }
 .v5-preview__search-fallback { margin: 0; color: var(--td-warning-color-8); font-size: 11px; }
 .v5-preview__search-table-wrap { max-height: min(420px, 45vh); overflow: auto; border: 1px solid var(--td-component-border); border-radius: 8px; }
 .v5-preview__search-sources-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--td-bg-color-secondarycontainer); color: var(--td-text-color-secondary); font-size: 12px; }
@@ -998,6 +1138,17 @@ onMounted(loadCatalog)
 .v5-preview__concept-state[data-state='present'] { background: var(--td-success-color-1); color: var(--td-success-color-7); }
 .v5-preview__concept-state[data-state='absent_explicitly'] { background: var(--td-warning-color-1); color: var(--td-warning-color-8); }
 .v5-preview__concept-open { padding: 4px 8px; border: 1px solid var(--td-brand-color); border-radius: 4px; background: transparent; color: var(--td-brand-color); cursor: pointer; font-size: 11px; }
+@keyframes v5-search-pulse {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
+@keyframes v5-search-cursor {
+  0%, 45% { opacity: 1; }
+  46%, 100% { opacity: 0; }
+}
+@keyframes v5-search-spin {
+  to { transform: rotate(360deg); }
+}
 @media (max-width: 1100px) {
   .v5-preview__form { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
   .v5-preview__browser { grid-template-columns: 270px minmax(0, 1fr); }
@@ -1012,7 +1163,8 @@ onMounted(loadCatalog)
   .v5-preview__search { width: calc(100% - 24px); margin: 12px auto; padding: 16px; }
   .v5-preview__search-header-meta { justify-content: flex-start; }
   .v5-preview__search-form { flex-direction: column; }
-  .v5-preview__search-form button { justify-content: center; }
+  .v5-preview__search-actions, .v5-preview__search-form button { width: 100%; }
+  .v5-preview__search-actions button { flex: 1; }
   .v5-preview__concept-tab { padding: 12px; }
   .v5-preview__concepts-header { align-items: stretch; flex-direction: column; }
   .v5-preview__concepts-header label { width: 100%; }

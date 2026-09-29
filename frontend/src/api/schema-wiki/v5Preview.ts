@@ -16,6 +16,20 @@ import {
   type V5SearchResult,
 } from './v5/v5SearchContract.ts'
 
+export interface V5SearchStreamMeta {
+  readonly query: string
+  readonly provider: 'local' | 'bailian'
+  readonly model: string | null
+  readonly matches: V5SearchResult['matches']
+  readonly provider_error: string | null
+}
+
+export interface V5SearchStreamHandlers {
+  readonly onMeta?: (meta: V5SearchStreamMeta) => void
+  readonly onDelta: (content: string) => void
+  readonly onDone?: (result: Pick<V5SearchResult, 'provider' | 'model' | 'provider_error'>) => void
+}
+
 export interface V5CatalogSchemaIndex {
   readonly ordinal: number
   readonly insurance_class: string
@@ -50,6 +64,12 @@ export interface V5PreviewClient {
     request: V5DynamicFieldGapfillRequest,
   ): Promise<V5DynamicFieldGapfillResponse>
   search?(query: string, limit?: number): Promise<V5SearchResult>
+  searchStream?(
+    query: string,
+    handlers: V5SearchStreamHandlers,
+    limit?: number,
+    signal?: AbortSignal,
+  ): Promise<void>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -160,6 +180,76 @@ export function createV5PreviewClient(fetcher: typeof fetch = fetch): V5PreviewC
         body: JSON.stringify({ query, limit }),
       })
       return parseV5SearchResult(await responseJson(response))
+    },
+    async searchStream(
+      query: string,
+      handlers: V5SearchStreamHandlers,
+      limit = 20,
+      signal?: AbortSignal,
+    ): Promise<void> {
+      const response = await fetcher('/v5-preview-api/search/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: JSON.stringify({ query, limit }),
+        signal,
+      })
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '')
+        throw new Error(detail || `HTTP_${response.status}`)
+      }
+      if (!response.body) throw new Error('V5_SEARCH_STREAM_BODY_MISSING')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      const consume = (raw: string) => {
+        const payload = raw
+          .split(/\r?\n/)
+          .filter(line => line.startsWith('data:'))
+          .map(line => line.slice(5).trim())
+          .join('')
+        if (!payload) return
+        const event = JSON.parse(payload) as Record<string, unknown>
+        if (event.type === 'meta') {
+          handlers.onMeta?.({
+            query: String(event.query || query),
+            provider: event.provider === 'bailian' ? 'bailian' : 'local',
+            model: typeof event.model === 'string' ? event.model : null,
+            matches: Array.isArray(event.matches)
+              ? parseV5SearchResult({
+                contract: 'insurance-v5-search-response.v1',
+                query: String(event.query || query),
+                provider: event.provider === 'bailian' ? 'bailian' : 'local',
+                model: typeof event.model === 'string' ? event.model : null,
+                answer: 'streaming',
+                matches: event.matches,
+                provider_error: typeof event.provider_error === 'string' ? event.provider_error : null,
+              }).matches
+              : [],
+            provider_error: typeof event.provider_error === 'string' ? event.provider_error : null,
+          })
+        } else if (event.type === 'delta' && typeof event.content === 'string') {
+          handlers.onDelta(event.content)
+        } else if (event.type === 'done') {
+          handlers.onDone?.({
+            provider: event.provider === 'bailian' ? 'bailian' : 'local',
+            model: typeof event.model === 'string' ? event.model : null,
+            provider_error: typeof event.provider_error === 'string' ? event.provider_error : null,
+          })
+        } else if (event.type === 'error') {
+          throw new Error(typeof event.detail === 'string' ? event.detail : 'V5_SEARCH_STREAM_FAILED')
+        }
+      }
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split(/\r?\n\r?\n/)
+        buffer = events.pop() || ''
+        events.forEach(consume)
+      }
+      buffer += decoder.decode()
+      if (buffer.trim()) consume(buffer)
     },
   })
 }

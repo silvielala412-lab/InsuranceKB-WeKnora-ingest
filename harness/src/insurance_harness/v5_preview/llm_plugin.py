@@ -31,6 +31,14 @@ class CompletionPort(Protocol):
 
     def complete(self, *, system: str, user: str) -> str: ...
 
+    def complete_stream(
+        self,
+        *,
+        system: str,
+        user: str,
+        on_content_delta: Callable[[str], None],
+    ) -> str: ...
+
 
 class CompletionReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -74,9 +82,35 @@ class OpenAICompatibleCompletion:
         if self._call_count >= self._max_calls:
             raise LlmPluginError("V5_PREVIEW_PROVIDER_CALL_BUDGET_EXHAUSTED")
         self._call_count += 1
-        body: dict[str, object] = {
+        body = self._request_body(system=system, user=user)
+        if self._model_family == "qwen":
+            return self._complete_qwen_stream(body)
+        return self._complete_json(body)
+
+    def complete_stream(
+        self,
+        *,
+        system: str,
+        user: str,
+        on_content_delta: Callable[[str], None],
+    ) -> str:
+        """Complete while forwarding provider content deltas to the caller."""
+
+        if self._call_count >= self._max_calls:
+            raise LlmPluginError("V5_PREVIEW_PROVIDER_CALL_BUDGET_EXHAUSTED")
+        self._call_count += 1
+        body = self._request_body(system=system, user=user)
+        if self._model_family == "qwen":
+            return self._complete_qwen_stream(body, on_content_delta=on_content_delta)
+        content = self._complete_json(body)
+        on_content_delta(content)
+        return content
+
+    def _request_body(self, *, system: str, user: str) -> dict[str, object]:
+        body = {
             "model": self.model,
             "temperature": 0,
+            "max_tokens": 4096,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system},
@@ -87,8 +121,7 @@ class OpenAICompatibleCompletion:
             body["enable_thinking"] = False
             body["stream"] = True
             body["stream_options"] = {"include_usage": True}
-            return self._complete_qwen_stream(body)
-        return self._complete_json(body)
+        return body
 
     def _complete_json(self, body: dict[str, object]) -> str:
         response = self._client.post(
@@ -120,7 +153,12 @@ class OpenAICompatibleCompletion:
             raise LlmPluginError("LLM_RESULT_NOT_COMPLETE")
         return content
 
-    def _complete_qwen_stream(self, body: dict[str, object]) -> str:
+    def _complete_qwen_stream(
+        self,
+        body: dict[str, object],
+        *,
+        on_content_delta: Callable[[str], None] | None = None,
+    ) -> str:
         content_parts: list[str] = []
         response_id = "provider-response-id-unavailable"
         response_model = self.model
@@ -161,6 +199,8 @@ class OpenAICompatibleCompletion:
                     if not isinstance(content, str):
                         raise LlmPluginError("LLM_STREAM_CHUNK_INVALID")
                     content_parts.append(content)
+                    if on_content_delta is not None:
+                        on_content_delta(content)
                 if choice.get("finish_reason") is not None:
                     finish_reason = str(choice["finish_reason"])
         receipt = CompletionReceipt(
@@ -202,6 +242,9 @@ locator 必须按页标题填写为 pdf:<文件名>#page=<页码>；它只是建
 核对该页确实逐字包含 quote 后才采纳。
 不得引用系统插入的文档/页码标题，不得用常识补全事实。
 value 只允许字符串、数字、布尔或字符串数组；复杂结构请转为语义完整的字符串。
+如果原文是表格或包含表格，必须在 value 字符串中保留完整的行列关系：使用标准 Markdown 表格表示，
+保留原表头、每一行、每一列、单位、合并单元格语义和脚注；不得把表格压平成失去列关系的连续句子。
+表格前后的说明可以保留在同一个字符串中，但表格本身必须使用独立的 Markdown 表格行。
 value_constraint.allow_other=true 表示 allowed_values 只是示例，不是封闭全集；必须以材料为准
 保留产品特有值。跨多个文件出现的同一字段必须合并，不能用说明书摘要覆盖或替代条款细节。
 对要求清单、组成部分、条件或限制的字段，宁可分项详实表达，也不得为了简短而省略材料中

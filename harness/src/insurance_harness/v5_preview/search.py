@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal, Protocol
 
 import httpx
@@ -70,6 +70,14 @@ class SearchCompletion(Protocol):
 
     def complete(self, *, system: str, user: str) -> str: ...
 
+    def complete_stream(
+        self,
+        *,
+        system: str,
+        user: str,
+        on_content_delta: Callable[[str], None],
+    ) -> str: ...
+
 
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]+")
 _QUERY_ALIASES: dict[str, tuple[str, ...]] = {
@@ -82,6 +90,7 @@ _QUERY_ALIASES: dict[str, tuple[str, ...]] = {
     "可投保职业": ("可投保职业", "投保职业", "职业限制"),
     "宽限期": ("宽限期", "缴费宽限"),
     "外购药/特药责任": ("外购药", "特药责任", "外购药/特药责任"),
+    "销售状态": ("销售状态", "在售", "在售状态", "停售", "停止销售"),
 }
 
 # Search results remain useful to the UI, while the provider receives a much
@@ -93,6 +102,9 @@ _LLM_CONTEXT_MAX_PER_PRODUCT = 3
 _LLM_CONTEXT_VALUE_CHARS = 600
 _LLM_CONTEXT_EVIDENCE_CHARS = 220
 _LLM_CONTEXT_MAX_EVIDENCE = 2
+_PRODUCT_COUNT_QUERY_RE = re.compile(
+    r"(?:\d+|[一二三四五六七八九十百千万两]+)款产品",
+)
 
 
 def _value_text(value: CandidateValue) -> str:
@@ -163,7 +175,32 @@ def _product_query_score(preview: V5CandidatePreview, query: str) -> int:
     # every product in the catalogue.
     prefix = re.split(r"的|哪些|什么|哪|有", normalized_query, maxsplit=1)[0]
     prefix = re.sub(r"[\s，。！？?、]", "", prefix)
-    return 10 if len(prefix) >= 3 and prefix in product_text else 0
+    if len(prefix) >= 3 and prefix in product_text:
+        return 10
+    compact_query = re.sub(r"[\s，。！？?、（）()【】\[\]《》:：;；/]", "", normalized_query)
+    compact_product = re.sub(r"[\s，。！？?、（）()【】\[\]《》:：;；/]", "", product_text)
+    if "e生保" in compact_query and "尊享版" in compact_query:
+        return 10 if "e生保" in compact_product and "尊享版" in compact_product else 0
+    # Product names in natural questions often include a version marker that
+    # is separated by parentheses in the extracted display name.
+    for start in range(max(0, len(compact_product) - 3)):
+        for end in range(len(compact_product), start + 3, -1):
+            if end - start >= 4 and compact_product[start:end] in compact_query:
+                return 10
+    return 0
+
+
+def _query_requests_table(query: str) -> bool:
+    normalized = re.sub(r"\s+", "", query.casefold())
+    return any(term in normalized for term in ("表格", "表单", "markdowntable", "markdown表格"))
+
+
+def _query_requests_product_coverage(query: str) -> bool:
+    normalized = re.sub(r"\s+", "", query.casefold())
+    return bool(_PRODUCT_COUNT_QUERY_RE.search(normalized)) or any(
+        term in normalized
+        for term in ("各产品", "每款产品", "全部产品", "所有产品", "各款产品")
+    )
 
 
 def _score_match(preview: V5CandidatePreview, field: object, query: str, tokens: Sequence[str]) -> int:
@@ -255,18 +292,100 @@ def build_v5_search_matches(
     direct = [item for item in product_scoped if item[1] > 0]
     candidates = direct if direct else product_scoped
     candidates.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3], item[4]))
-    return tuple(item[5] for item in candidates[:limit])
+    if not _query_requests_product_coverage(query):
+        return tuple(item[5] for item in candidates[:limit])
+
+    # Broad/table questions need at least one evidence-backed row per product.
+    # A plain top-N slice can hide the last products when one product has many
+    # matching fields, even though the loaded run contains all products.
+    selected: list[tuple[int, int, int, int, int, V5SearchMatch]] = []
+    seen_products: set[str] = set()
+    for item in candidates:
+        product_id = item[5].product_id
+        if product_id in seen_products:
+            continue
+        selected.append(item)
+        seen_products.add(product_id)
+        if len(selected) >= limit:
+            break
+    if len(selected) < limit:
+        selected_keys = {(item[5].product_id, item[5].field_id) for item in selected}
+        for item in candidates:
+            key = (item[5].product_id, item[5].field_id)
+            if key in selected_keys:
+                continue
+            selected.append(item)
+            selected_keys.add(key)
+            if len(selected) >= limit:
+                break
+    return tuple(item[5] for item in selected[:limit])
+
+
+def _table_representatives(matches: Sequence[V5SearchMatch]) -> tuple[V5SearchMatch, ...]:
+    by_product: dict[str, list[V5SearchMatch]] = {}
+    product_order: list[str] = []
+    for match in matches:
+        if match.product_id not in by_product:
+            by_product[match.product_id] = []
+            product_order.append(match.product_id)
+        by_product[match.product_id].append(match)
+    representatives: list[V5SearchMatch] = []
+    for product_id in product_order:
+        product_matches = by_product[product_id]
+        representatives.append(
+            next(
+                (
+                    match
+                    for match in product_matches
+                    if "投保年龄" in match.field_display_name
+                ),
+                product_matches[0],
+            )
+        )
+    return tuple(representatives)
+
+
+def _markdown_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\r\n", "<br>").replace("\n", "<br>")
+
+
+def _table_answer(query: str, matches: Sequence[V5SearchMatch]) -> str:
+    representatives = _table_representatives(matches)
+    if not representatives:
+        return f'当前已加载的产品结果中未检索到与“{query}”直接匹配的字段。'
+    rows = [
+        "| 产品 | 匹配字段 | 抽取值 |",
+        "| --- | --- | --- |",
+    ]
+    rows.extend(
+        f"| {_markdown_cell(match.product_display_name)} | "
+        f"{_markdown_cell(match.field_display_name)} | "
+        f"{_markdown_cell(_value_text(match.value))} |"
+        for match in representatives
+    )
+    return (
+        f"基于当前已抽取结果，关于“{query}”命中 {len(matches)} 条字段，"
+        f"覆盖 {len(representatives)} 款产品：\n\n"
+        + "\n".join(rows)
+    )
 
 
 def _local_answer(query: str, matches: Sequence[V5SearchMatch]) -> str:
+    if _query_requests_table(query):
+        return _table_answer(query, matches)
     if not matches:
         return f'当前已加载的产品结果中未检索到与“{query}”直接匹配的字段。'
     products = len({match.product_id for match in matches})
+    detailed_query = any(
+        term in query
+        for term in ("理赔", "材料", "事故通知", "核定", "给付", "时限")
+    )
+    value_limit = 1800 if detailed_query else 240
     details = []
     for match in matches[:8]:
         value = _value_text(match.value)
-        if len(value) > 240:
-            value = f"{value[:240]}…"
+        if len(value) > value_limit:
+            value = _compact_text(value, value_limit)
         details.append(f"{match.product_display_name}｜{match.field_display_name}：{value}")
     return (
         f'基于当前已抽取结果，关于“{query}”命中 {len(matches)} 条字段，涉及 {products} 款产品：\n'
@@ -282,6 +401,117 @@ def _compact_text(value: str, max_chars: int) -> str:
     head = max(1, int(max_chars * 0.72))
     tail = max(1, max_chars - head - 1)
     return f"{value[:head]}…{value[-tail:]}"
+
+
+def _normalize_provider_answer(value: str) -> str:
+    """Repair harmless double-escaped Markdown line breaks from JSON mode."""
+
+    normalized = (
+        value
+        .replace("\\r\\n", "\n")
+        .replace("\\n", "\n")
+        .replace("\\r", "\r")
+        .replace("\\t", "\t")
+        .replace('\\"', '"')
+    )
+    normalized = normalized.replace('">', "")
+    normalized = re.sub(r"\\(?=[\\\-\[\]()>])", "", normalized)
+    normalized = normalized.replace("\\", "")
+    # Some JSON-mode responses repeat the closing quote/comma inside the
+    # answer string. Trim only a suffix-shaped transport artifact, preserving
+    # quotes and punctuation in the actual answer body.
+    for marker in ('">', '", "match_indices"', '", "}'):
+        position = normalized.rfind(marker)
+        if position >= 0 and position >= len(normalized) - 80:
+            normalized = normalized[:position]
+    return normalized.rstrip(" \\n\r\t")
+
+
+class _JsonAnswerDeltaExtractor:
+    """Extract the answer string from an incrementally generated JSON object."""
+
+    _ESCAPES = {
+        '"': '"',
+        "\\": "\\",
+        "/": "/",
+        "b": "\b",
+        "f": "\f",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+    }
+
+    def __init__(self, emit: Callable[[str], None]) -> None:
+        self._emit = emit
+        self._buffer = ""
+        self._cursor = 0
+        self._state = "seek"
+        self._unicode = ""
+
+    def feed(self, content: str) -> None:
+        self._buffer += content
+        while self._cursor < len(self._buffer):
+            if self._state == "seek":
+                marker = self._buffer.find('"answer"', self._cursor)
+                if marker < 0:
+                    self._cursor = max(0, len(self._buffer) - 10)
+                    return
+                self._cursor = marker + len('"answer"')
+                self._state = "colon"
+            elif self._state == "colon":
+                char = self._buffer[self._cursor]
+                if char.isspace():
+                    self._cursor += 1
+                elif char == ":":
+                    self._cursor += 1
+                    self._state = "quote"
+                else:
+                    self._state = "seek"
+            elif self._state == "quote":
+                char = self._buffer[self._cursor]
+                if char.isspace():
+                    self._cursor += 1
+                elif char == '"':
+                    self._cursor += 1
+                    self._state = "string"
+                else:
+                    self._state = "seek"
+            elif self._state == "string":
+                char = self._buffer[self._cursor]
+                self._cursor += 1
+                if char == '"':
+                    self._state = "done"
+                elif char == "\\":
+                    self._state = "escape"
+                else:
+                    self._emit(char)
+            elif self._state == "escape":
+                char = self._buffer[self._cursor]
+                self._cursor += 1
+                if char == "u":
+                    self._unicode = ""
+                    self._state = "unicode"
+                else:
+                    self._emit(self._ESCAPES.get(char, char))
+                    self._state = "string"
+            elif self._state == "unicode":
+                char = self._buffer[self._cursor]
+                self._cursor += 1
+                if char.lower() not in "0123456789abcdef":
+                    self._emit("\\u" + self._unicode + char)
+                    self._state = "string"
+                    continue
+                self._unicode += char
+                if len(self._unicode) == 4:
+                    self._emit(chr(int(self._unicode, 16)))
+                    self._state = "string"
+            else:
+                self._cursor = len(self._buffer)
+
+    def finish(self) -> None:
+        # A malformed/incomplete provider payload is rejected by the normal
+        # JSON validation after the stream closes; no speculative text is sent.
+        return
 
 
 def _llm_context_matches(matches: Sequence[V5SearchMatch]) -> tuple[V5SearchMatch, ...]:
@@ -306,6 +536,7 @@ def _llm_answer(
     query: str,
     matches: Sequence[V5SearchMatch],
     loaded_products: Sequence[object] = (),
+    on_answer_delta: Callable[[str], None] | None = None,
 ) -> str:
     context_matches = _llm_context_matches(matches)
     context = [
@@ -341,28 +572,38 @@ def _llm_answer(
         }
         for product in product_source
     ]
-    raw = completion.complete(
-        system=(
+    system = (
             f"你是保险产品知识检索助手，当前模型是 {completion.model}。"
             "只使用给定的已抽取字段、Evidence 和已加载产品清单回答用户问题，"
             "不得补充材料之外的保险事实。若用户询问你的模型身份，可以直接回答当前模型名；"
             "如果材料不足以回答其他问题，要明确说明材料中没有依据。回答要完整、易读："
-            "优先按产品分组，列出关键数值、条件和限制；有多个命中时用分点或短段落展开，"
+            "优先按产品分组，列出关键数值、条件和限制；有多个命中时用分点或短段落展开；"
+            "如果用户明确要求表格，必须在 answer 中输出合法 Markdown 表格，"
+            "表头和每行使用半角竖线 |，"
+            "不要使用全角竖线｜替代表格分隔符；"
+            "涉及材料、时限或规则时，必须逐项覆盖上下文中与用户每个子问题相关的字段，"
+            "不要用概括句代替具体材料、天数、触发条件和处理后果；"
             "并在结尾注明依据不足的部分。只输出 JSON 对象，结构为 "
             '{"answer":"按材料详细回答","match_indices":[0]}。'
-        ),
-        user=json.dumps(
+        )
+    user = json.dumps(
             {"query": query, "loaded_products": products, "matches": context},
             ensure_ascii=False,
-        ),
-    )
+        )
+    stream_completion = getattr(completion, "complete_stream", None)
+    if on_answer_delta is not None and callable(stream_completion):
+        extractor = _JsonAnswerDeltaExtractor(on_answer_delta)
+        raw = stream_completion(system=system, user=user, on_content_delta=extractor.feed)
+        extractor.finish()
+    else:
+        raw = completion.complete(system=system, user=user)
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise LlmPluginError("V5_SEARCH_PROVIDER_RESULT_INVALID") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("answer"), str):
         raise LlmPluginError("V5_SEARCH_PROVIDER_RESULT_INVALID")
-    answer = payload["answer"].strip()
+    answer = _normalize_provider_answer(payload["answer"].strip())
     indices = payload.get("match_indices", [])
     if not answer or not isinstance(indices, list) or not all(
         isinstance(index, int)
@@ -375,7 +616,13 @@ def _llm_answer(
     # the answer when the completion is very short. Prefer the deterministic,
     # evidence-backed answer in that case so the user never sees transport
     # syntax instead of product facts.
-    if any(marker in answer for marker in ('">', "\\")):
+    if answer.lstrip().startswith('{'):
+        return _local_answer(query, matches)
+    if (
+        len(answer) < 240
+        and matches
+        and any(term in query for term in ("理赔", "材料", "事故通知", "核定", "给付", "时限"))
+    ):
         return _local_answer(query, matches)
     return answer
 
@@ -385,6 +632,7 @@ def search_provider_run(
     request: V5SearchRequest,
     *,
     completion: SearchCompletion | None = None,
+    on_answer_delta: Callable[[str], None] | None = None,
 ) -> V5SearchResponse:
     matches = build_v5_search_matches(provider_run, request.query, request.limit)
     answer = _local_answer(request.query, matches)
@@ -398,7 +646,12 @@ def search_provider_run(
                 request.query,
                 matches,
                 loaded_products=provider_run.products,
+                on_answer_delta=(
+                    None if _query_requests_table(request.query) else on_answer_delta
+                ),
             )
+            if _query_requests_table(request.query):
+                answer = _table_answer(request.query, matches)
             provider = "bailian"
             model = completion.model
         except (LlmPluginError, ValueError, httpx.HTTPError):

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 
 from .catalog import catalog_sha256, load_v5_catalog
 from .contracts import (
@@ -22,7 +25,12 @@ from .dynamic_gapfill import (
 from .ingest import IngestPluginRegistry, PreviewCompilationError, V5PreviewCompiler
 from .llm_plugin import LlmPluginError, OpenAICompatibleCompletion, SchemaGuidedLlmPlugin
 from .provider_trial import V5ProviderTrialRun, load_provider_trial_run
-from .search import V5SearchRequest, V5SearchResponse, search_provider_run
+from .search import (
+    V5SearchRequest,
+    V5SearchResponse,
+    build_v5_search_matches,
+    search_provider_run,
+)
 
 
 class FixturePreviewPlugin:
@@ -195,6 +203,109 @@ def create_app(
             provider_run,
             request,
             completion=configured_search_completion,
+        )
+
+    @app.post("/v5-preview-api/search/stream")
+    async def search_stream(request: V5SearchRequest) -> StreamingResponse:
+        """Stream retrieval metadata first, then the answer in small UI-friendly chunks."""
+
+        if provider_run is None:
+            raise HTTPException(status_code=503, detail="V5_SEARCH_DATA_NOT_CONFIGURED")
+
+        async def events():
+            matches = build_v5_search_matches(provider_run, request.query, request.limit)
+            provider = "bailian" if configured_search_completion is not None else "local"
+            model = (
+                configured_search_completion.model
+                if configured_search_completion is not None
+                else None
+            )
+            meta = {
+                "type": "meta",
+                "contract": "insurance-v5-search-stream-meta.v1",
+                "query": request.query,
+                "provider": provider,
+                "model": model,
+                "matches": [match.model_dump(mode="json") for match in matches],
+                "provider_error": None,
+            }
+            yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'status', 'stage': 'retrieving'}, ensure_ascii=False)}\n\n"
+
+            loop = asyncio.get_running_loop()
+            delta_queue: asyncio.Queue[dict[str, str]] = asyncio.Queue()
+            streamed = False
+
+            def on_answer_delta(content: str) -> None:
+                loop.call_soon_threadsafe(
+                    delta_queue.put_nowait,
+                    {"type": "delta", "content": content},
+                )
+
+            try:
+                result_task = asyncio.create_task(asyncio.to_thread(
+                    search_provider_run,
+                    provider_run,
+                    request,
+                    completion=configured_search_completion,
+                    on_answer_delta=on_answer_delta,
+                ))
+                while not result_task.done():
+                    try:
+                        event = await asyncio.wait_for(delta_queue.get(), timeout=0.35)
+                    except TimeoutError:
+                        yield f"data: {json.dumps({'type': 'status', 'stage': 'generating'}, ensure_ascii=False)}\n\n"
+                    else:
+                        streamed = True
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                result = await result_task
+                # A callback scheduled from the worker thread can land just
+                # after the task completes; give the event loop one turn to
+                # drain it before sending the final replacement.
+                await asyncio.sleep(0)
+                while True:
+                    try:
+                        event = delta_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    streamed = True
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            except Exception as exc:  # pragma: no cover - defensive transport guard
+                error = {"type": "error", "detail": str(exc) or "V5_SEARCH_STREAM_FAILED"}
+                yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
+                return
+
+            answer = result.answer
+            # The model stream is JSON, so the answer extractor may have no
+            # usable delta for local fallback or deterministic table output.
+            # Send a visibly progressive fallback in those cases. The replace
+            # event also corrects any partial provider output after validation.
+            if streamed:
+                yield f"data: {json.dumps({'type': 'replace', 'content': answer}, ensure_ascii=False)}\n\n"
+            else:
+                for index in range(0, len(answer), 12):
+                    delta = {"type": "delta", "content": answer[index:index + 12]}
+                    yield f"data: {json.dumps(delta, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.012)
+
+            done = {
+                "type": "done",
+                "contract": result.contract,
+                "query": result.query,
+                "provider": result.provider,
+                "model": result.model,
+                "provider_error": result.provider_error,
+            }
+            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     def compile_or_422(compiler: V5PreviewCompiler, request: IngestRequest) -> V5CandidatePreview:

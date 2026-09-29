@@ -9,6 +9,7 @@ from insurance_harness.v5_preview.contracts import (
 )
 from insurance_harness.v5_preview.search import (
     V5SearchRequest,
+    _normalize_provider_answer,
     search_provider_run,
 )
 from insurance_harness.v5_preview.trial_contracts import (
@@ -110,6 +111,22 @@ class _ContextCaptureCompletion:
         return json.dumps({"answer": "已按字段回答。", "match_indices": list(range(len(matches)))})
 
 
+class _StreamingCompletion:
+    model = "qwen-max"
+
+    def complete(self, *, system: str, user: str) -> str:
+        raise AssertionError("streaming completion should be selected")
+
+    def complete_stream(self, *, system: str, user: str, on_content_delta) -> str:
+        raw = json.dumps(
+            {"answer": "理赔材料需按条款提交。\n事故通知应及时。", "match_indices": [0]},
+            ensure_ascii=False,
+        )
+        for index in range(0, len(raw), 3):
+            on_content_delta(raw[index:index + 3])
+        return raw
+
+
 def test_search_relates_present_fields_and_can_summarize_with_provider() -> None:
     run = _run(
         _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享"),
@@ -177,6 +194,44 @@ def test_search_prioritizes_named_schema_field_in_a_natural_question() -> None:
     assert {match.field_id for match in result.matches} == {"product_short_name"}
 
 
+def test_search_scopes_versioned_product_name_with_parentheses() -> None:
+    result = search_provider_run(
+        _run(
+            _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享"),
+            _preview("594", "平安e生保（惠享版）长期医疗保险", "e生保惠享"),
+        ),
+        V5SearchRequest(query="申请 e生保尊享版理赔需要提交哪些材料？"),
+    )
+
+    assert result.matches
+    assert {match.product_id for match in result.matches} == {"596"}
+
+
+def test_sales_status_is_kept_in_context_for_availability_question() -> None:
+    preview = _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享")
+    status = CandidateField.model_construct(
+        ordinal=1,
+        category_id="02",
+        category_display_name="产品主数据",
+        field_id="sales_status",
+        display_name="销售状态",
+        knowledge_role="事实 Fact",
+        formation_modes=("原文抽取",),
+        output_kind="Fact",
+        state="present",
+        value="在售",
+        evidence=preview.fields[0].evidence,
+    )
+    run = _run(preview.model_copy(update={"fields": (preview.fields[0], status)}))
+
+    result = search_provider_run(
+        run,
+        V5SearchRequest(query="e生保尊享版这款保险在售吗"),
+    )
+
+    assert result.matches[0].field_id == "sales_status"
+
+
 def test_search_bounds_llm_context_and_related_product_list() -> None:
     run = _run(
         _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享"),
@@ -197,3 +252,40 @@ def test_search_bounds_llm_context_and_related_product_list() -> None:
     assert isinstance(context, list) and len(context) == 2
     assert isinstance(products, list) and {item["product_id"] for item in products} == {"596", "594"}
     assert len(json.dumps(completion.payload, ensure_ascii=False)) < 5000
+
+
+def test_search_forwards_answer_deltas_from_provider() -> None:
+    deltas: list[str] = []
+    result = search_provider_run(
+        _run(_preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享")),
+        V5SearchRequest(query="产品简称"),
+        completion=_StreamingCompletion(),
+        on_answer_delta=deltas.append,
+    )
+
+    assert result.provider == "bailian"
+    assert "理赔材料需按条款提交。" in "".join(deltas)
+    assert result.answer == "理赔材料需按条款提交。\n事故通知应及时。"
+
+
+def test_normalize_provider_answer_removes_json_mode_escapes() -> None:
+    value = r'第一项\n第二项\">\">第三项'
+
+    assert _normalize_provider_answer(value) == "第一项\n第二项第三项"
+
+
+def test_table_request_returns_markdown_and_preserves_product_coverage() -> None:
+    run = _run(
+        _preview("596", "平安e生保（尊享版）医疗保险", "e生保尊享"),
+        _preview("594", "平安e生保（惠享版）长期医疗保险", "e生保惠享"),
+    )
+
+    result = search_provider_run(
+        run,
+        V5SearchRequest(query="给到2款产品的产品简称，以表格形式输出", limit=2),
+    )
+
+    assert {match.product_id for match in result.matches} == {"596", "594"}
+    assert "| 产品 | 匹配字段 | 抽取值 |" in result.answer
+    assert "| 平安e生保（尊享版）医疗保险 | 产品简称 | e生保尊享 |" in result.answer
+    assert "| 平安e生保（惠享版）长期医疗保险 | 产品简称 | e生保惠享 |" in result.answer

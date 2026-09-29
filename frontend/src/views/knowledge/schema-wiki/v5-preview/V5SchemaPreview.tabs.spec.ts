@@ -68,7 +68,7 @@ describe('V5SchemaPreview tabs', () => {
     const wrapper = mount(V5SchemaPreview, { props: { client } })
     await flushPromises()
     await wrapper.get('[data-testid="v5-concepts-tab"]').trigger('click')
-    expect(wrapper.get('[data-testid="v5-concept-index"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="v5-concept-index"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('空值仍保留关系')
 
     await wrapper.get('[data-testid="v5-search-tab"]').trigger('click')
